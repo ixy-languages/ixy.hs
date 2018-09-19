@@ -1,5 +1,9 @@
 module Lib.Pci
-    (
+    ( BusDeviceFunction
+    , mkBusDeviceFunction
+    , enableDMA
+    , unbind
+    , mapResource
     ) where
 
 import Lib.Prelude hiding (writeFile)
