@@ -1,6 +1,6 @@
 module Lib.Pci
     ( BusDeviceFunction
-    , mkBusDeviceFunction
+    , busDeviceFunction
     , enableDMA
     , unbind
     , mapResource
@@ -13,24 +13,30 @@ import Data.Bits ((.|.), shift)
 import qualified Data.ByteString as B
 import qualified Data.Text as Text
 import System.IO.Error (isDoesNotExistError)
-import System.IO.MMap (Mode(ReadWrite), mmapFilePtr)
 import qualified System.Path as Path
 import System.Path ((</>))
 import qualified System.Path.IO as PathIO
+import System.Posix.IO (handleToFd)
+import System.Posix.Memory
+    ( MemoryMapFlag(MemoryMapShared)
+    , MemoryProtection(MemoryProtectionRead, MemoryProtectionWrite)
+    , memoryMap
+    )
 import Text.Regex.PCRE ((=~))
 
 newtype BusDeviceFunction = BDF
     { unBusDeviceFunction :: Text
     }
 
-mkBusDeviceFunction :: Text -> Maybe BusDeviceFunction
-mkBusDeviceFunction bdfText
+busDeviceFunction :: Text -> Maybe BusDeviceFunction
+busDeviceFunction bdfText
     | Text.unpack bdfText =~ Text.unpack "[0-9A-F]{4}:[0-9A-F]{2}:[0-9A-F]{2}.[0-9]" = Just (BDF bdfText)
-mkBusDeviceFunction _ = Nothing
+busDeviceFunction _ = Nothing
 
 base :: Path.AbsDir
 base = Path.dirPath "/sys/bus/pci/devices/"
 
+-- TODO: Check if reading then writing is not somehow out-of-ordered.
 enableDMA :: (MonadIO m) => BusDeviceFunction -> m ()
 enableDMA bdf =
     liftIO $
@@ -48,15 +54,28 @@ enableDMA bdf =
     busMasterEnableIndex = 2
     setDMA b = (B.head b .|. shift 1 busMasterEnableIndex) `B.cons` B.tail b
 
-mapResource :: (MonadIO m) => BusDeviceFunction -> Path.RelFile -> m (Ptr a)
+mapResource :: (MonadIO m) => BusDeviceFunction -> Text -> m (Ptr a)
 mapResource bdf resource =
     liftIO $ do
         unbind bdf
         enableDMA bdf
-        (ptr, _, _, _) <- mmapFilePtr (Path.toString path) ReadWrite Nothing
-        return ptr
+        PathIO.withBinaryFile
+            path
+            PathIO.ReadWriteMode
+            (\h ->
+                 liftIO $ do
+                     size <- PathIO.hFileSize h
+                     fd <- handleToFd h
+                     memoryMap
+                         Nothing
+                         (fromIntegral size)
+                         [MemoryProtectionRead, MemoryProtectionWrite]
+                         MemoryMapShared
+                         (Just fd)
+                         0)
   where
-    path = base </> Path.relPath (Text.unpack bdfT) </> resource
+    res = Path.relFile $ Text.unpack resource
+    path = base </> Path.relPath (Text.unpack bdfT) </> res
     bdfT = unBusDeviceFunction bdf
 
 unbind :: (MonadCatch m, MonadIO m) => BusDeviceFunction -> m ()
