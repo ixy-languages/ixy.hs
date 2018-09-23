@@ -86,17 +86,21 @@ data MemPool = MemPool
 
 allocateMemPool :: (MonadCatch m, MonadIO m, Logger m) => Int -> Int -> m MemPool
 allocateMemPool numEntries entrySize = do
+    logLn $ "Allocating MemPool with numEntries=" <> show numEntries <> " and entrySize=" <> show entrySize <> "."
     t <- allocateDMA (fromIntegral (numEntries * entrySize)) False
     -- NOTE: This ignores entrySize and fixes it to 2048!
+    logLn "Entry size is ignored and fixed to 2048B."
     let m = MemPool {base = virtual t, bufSize = 2048, top = numEntries}
-     in do mapM_ (initBuf m) [0 .. numEntries]
+     in do mapM_ (initBuf m) [0 .. (numEntries - 1)]
            return m
   where
     initBuf memPool index = do
         packetBuf <- liftIO $ peekByteOff ptr offset
         t <- translate (ptr `plusPtr` offset)
+        logLn $ "Read PacketBuf: " <> show packetBuf <> "."
         let pb = packetBuf {physicalAddr = t, memPoolIndex = index, size = 0}
-         in liftIO $ pokeByteOff ptr offset pb
+         in do logLn $ "Storing a PacketBuf with aspect: " <> show pb <> "."
+               liftIO $ pokeByteOff ptr offset pb
       where
         ptr = castPtr $ base memPool :: Ptr PacketBuf
         offset = index * bufSize memPool
@@ -106,7 +110,7 @@ data PacketBuf = PacketBuf
     , memPoolIndex :: Int
     , size :: Int
     , buf :: ByteString
-    }
+    } deriving (Show)
 
 instance Storable PacketBuf where
     sizeOf _ = 2048
@@ -115,7 +119,11 @@ instance Storable PacketBuf where
         addr <- peek (castPtr ptr) :: IO Word
         index <- peekByteOff ptr (sizeOf addr) :: IO Int
         size <- peekByteOff ptr (sizeOf addr + sizeOf index) :: IO Int
-        bufRaw <- mapM (peekWord ptr (sizeOf addr + sizeOf index + sizeOf size)) [0 .. size]
+        let indices =
+                if size /= 0
+                    then [0 .. size]
+                    else []
+        bufRaw <- mapM (peekWord ptr (sizeOf addr + sizeOf index + sizeOf size)) indices
         return PacketBuf {physicalAddr = addr, memPoolIndex = index, size = size, buf = B.pack bufRaw}
       where
         peekWord ptr offset i = peekByteOff ptr (offset + i * sizeOf (undefined :: Word8)) :: IO Word8
