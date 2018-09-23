@@ -10,15 +10,13 @@ module Lib.Memory
     , top
     ) where
 
-import Lib.Log (Logger, abort, halt, logLn)
+import Lib.Log (Logger, halt, logLn)
 import Lib.Prelude
 
 import Control.Monad.Catch (MonadCatch, handleIOError)
 import Data.Bits ((.&.), shift, shiftR)
 import qualified Data.ByteString as B
 import Data.Foldable (mapM_)
-import qualified Data.Vector.Unboxed as V
-import Foreign.C.Types
 import Foreign.Marshal.Alloc (free, malloc)
 import Foreign.Ptr (Ptr, castPtr, nullPtr, plusPtr, ptrToWordPtr)
 import Foreign.Storable (alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
@@ -32,8 +30,10 @@ import System.Posix.Memory
     , sysconfPageSize
     )
 
+hugePageBits :: Int
 hugePageBits = 21
 
+hugePageSize :: Word
 hugePageSize = shift 1 hugePageBits
 
 translate :: (MonadCatch m, MonadIO m, Logger m) => Ptr a -> m Word
@@ -44,10 +44,10 @@ translate virt = handleIOError handler (liftIO $ PathIO.withBinaryFile path Path
     wPtr = ptrToWordPtr virt
     inner h = do
         PathIO.hSeek h PathIO.AbsoluteSeek offset
-        buf <- malloc :: IO (Ptr Word)
-        _ <- PathIO.hGetBuf h buf $ sizeOf wPtr
-        phy <- peek buf
-        free buf
+        b <- malloc :: IO (Ptr Word)
+        _ <- PathIO.hGetBuf h b $ sizeOf wPtr
+        phy <- peek b
+        free b
         return $ (phy .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wPtr `mod` fromIntegral sysconfPageSize
     handler = halt "Error occured during translation of a virtual address."
 
@@ -97,10 +97,8 @@ allocateMemPool numEntries entrySize = do
     initBuf memPool index = do
         packetBuf <- liftIO $ peekByteOff ptr offset
         t <- translate (ptr `plusPtr` offset)
-        logLn $ "Read PacketBuf: " <> show packetBuf <> "."
         let pb = packetBuf {physicalAddr = t, memPoolIndex = index, size = 0}
-         in do logLn $ "Storing a PacketBuf with aspect: " <> show pb <> "."
-               liftIO $ pokeByteOff ptr offset pb
+         in liftIO $ pokeByteOff ptr offset pb
       where
         ptr = castPtr $ base memPool :: Ptr PacketBuf
         offset = index * bufSize memPool
@@ -131,7 +129,7 @@ instance Storable PacketBuf where
         poke (castPtr ptr :: Ptr Word) phy
         pokeByteOff ptr (sizeOf phy) index
         pokeByteOff ptr (sizeOf phy + sizeOf index) s
-        mapM_ (pokeWord ptr (sizeOf phy + sizeOf index + sizeOf s)) $ zip [0 ..] b
+        mapM_ (pokeWord ptr (sizeOf phy + sizeOf index + sizeOf s)) $ zip [0 .. s] b
       where
         phy = physicalAddr memPool
         index = memPoolIndex memPool
@@ -140,17 +138,15 @@ instance Storable PacketBuf where
         pokeWord ptr offset (i, w) = pokeByteOff ptr (offset + i * sizeOf w) w
 
 -- TODO: Add exception handling to this.
-allocateBatch :: (MonadCatch m, MonadIO m, Logger m, MonadState MemPool m) => Int -> m ([PacketBuf], Int)
+allocateBatch :: (MonadCatch m, MonadIO m, Logger m, MonadState MemPool m) => Int -> m ([Ptr PacketBuf], Int)
 allocateBatch numBufs = do
+    logLn $ "Allocating a batch of packet buffers (numBufs=" <> show numBufs <> ")."
     memPool <- get
     let n = min (top memPool) numBufs
-     in do logLn "Does this work?"
-           bufs <- traverse initBuf [0 .. numBufs]
+     in do bufs <- traverse initBuf [0 .. numBufs]
            return (bufs, n)
   where
     initBuf _ = do
         memPool <- get
         put (MemPool {base = base memPool, bufSize = bufSize memPool, top = top memPool - 1})
-        liftIO $
-            peek
-                (castPtr (nullPtr `plusPtr` (fromIntegral (ptrToWordPtr $ base memPool) + (top memPool - 1) * bufSize memPool)) :: Ptr PacketBuf)
+        return $ castPtr (nullPtr `plusPtr` (fromIntegral (ptrToWordPtr $ base memPool) + (top memPool - 1) * bufSize memPool))
