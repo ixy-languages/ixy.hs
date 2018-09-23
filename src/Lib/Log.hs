@@ -13,17 +13,19 @@ import Lib.Prelude
 import qualified Data.Text as T
 import System.Log.FastLogger (LogStr, TimedFastLogger, ToLogStr, toLogStr)
 
-type Logger = MonadReader TimedFastLogger
+type Logger = MonadReader (TimedFastLogger, IO ())
 
-logLn :: (MonadIO m, MonadReader TimedFastLogger m) => Text -> m ()
+logLn :: (MonadIO m, Logger m) => Text -> m ()
 logLn msg = do
-    logger <- ask
+    (logger, _) <- ask
     liftIO $ logger $ prepare msg
 
 abort :: (Exception e, MonadIO m, Logger m) => e -> Text -> m a
 abort e msg = do
+    (_, cleanup) <- ask
     logLn $ "Exception caught: " <> T.pack (displayException e)
     logLn $ "Additional information: " <> msg
+    liftIO cleanup
     liftIO exitFailure
 
 halt :: (Exception e, MonadIO m, Logger m) => Text -> e -> m a
