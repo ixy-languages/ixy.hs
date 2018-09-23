@@ -61,7 +61,7 @@ allocateDMA size contiguous = handleIOError handler inner
   where
     handler = halt "Error occured during an attempt to allocate memory for DMA."
     inner = do
-        logLn $ "Attempting to allocate DMA memory with size " <> show size <> "B (contigous=" <> show contiguous <> ")."
+        logLn $ "Attempting to allocate DMA memory with size " <> show size <> "B (contiguous=" <> show contiguous <> ")."
         ptr <-
             liftIO $ do
                 (_, h) <- PathIO.openBinaryTempFile (Path.absDir "/mnt/huge") (Path.relFile "ixy.huge")
