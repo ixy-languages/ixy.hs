@@ -3,6 +3,7 @@
 module Lib.Pci
     ( BusDeviceFunction
     , busDeviceFunction
+    , unBusDeviceFunction
     , enableDMA
     , unbind
     , mapResource

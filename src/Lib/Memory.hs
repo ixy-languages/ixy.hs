@@ -1,13 +1,17 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 module Lib.Memory
-    ( translate
+    ( Translation
+    , physical
+    , virtual
+    , translate
     , allocateDMA
     , allocateMemPool
     , MemPool(MemPool)
     , base
     , bufSize
     , top
+    , PacketBuf(PacketBuf)
     ) where
 
 import Lib.Log (Logger, halt, logLn)
