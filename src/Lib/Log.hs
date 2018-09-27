@@ -1,5 +1,5 @@
 module Lib.Log
-    ( Logger
+    ( Logger(..)
     , logLn
     , abort
     , halt

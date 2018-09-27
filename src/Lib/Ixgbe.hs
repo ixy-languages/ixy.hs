@@ -9,7 +9,7 @@ import Lib.Core (Env(..), LogType)
 import qualified Lib.Ixgbe.Register as R
 import Lib.Ixgbe.Types (Dev(..), LinkSpeed(..), ReceiveDescriptor(..), RxQueue(..), Stats(..), TransmitDescriptor(..), TxQueue(..))
 import Lib.Ixgbe.Types.Extended (Device(..))
-import Lib.Log (Logger, logLn)
+import Lib.Log (Logger(..), logLn)
 import Lib.Memory (allocateDMA, allocateMemPool, allocatePktBuf)
 import Lib.Memory.Types (MemPool(..), PacketBuf(..), Translation(..))
 import Lib.Pci (mapResource)
@@ -51,6 +51,9 @@ init numRx numTx = do
         logLn $ "Resetting device " <> bdf <> "."
         reset
         logLn $ "Initializing device " <> bdf <> "."
+        env <- ask
+        let (_, cleanup) = getLogger env
+        liftIO $ cleanup
         R.waitSet R.EEC autoReadDone
         R.waitSet R.RDRXCTL dmaInitCycleDone
         logLn $ "Initializing link for device " <> bdf <> "."
