@@ -4,9 +4,10 @@ module Main where
 
 import Protolude
 
-import Lib (Env(..), init)
+import Lib (Dev(..), Env(..), busDeviceFunction, init)
 
 import Control.Monad.Catch (MonadCatch, MonadThrow)
+import Data.Maybe (fromJust)
 import System.Log.FastLogger (LogType(LogStdout), TimeFormat, newTimedFastLogger)
 import System.Log.FastLogger.Date (newTimeCache)
 
@@ -18,7 +19,8 @@ main :: IO ()
 main = do
     tc <- newTimeCache ("[%Y-%m-%d %H:%M:%S]" :: TimeFormat)
     (logger, cleanup) <- newTimedFastLogger tc (LogStdout 4096)
-    let env = Env {envLogger = (logger, cleanup)}
+    let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
+    let env = Env {envLogger = (logger, cleanup), envDevice = Dev {devBdf = bdf}}
     runReaderT (runApp run) env
     cleanup
 
