@@ -1,34 +1,37 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ConstraintKinds #-}
-
 module Lib.Log
-    ( logLn
+    ( Logger
+    , logLn
     , abort
     , halt
-    , Logger
     ) where
 
+import Lib.Core (Env(envLogger), LogType)
 import Lib.Prelude
 
 import qualified Data.Text as T
-import System.Log.FastLogger (LogStr, TimedFastLogger, ToLogStr, toLogStr)
+import System.Log.FastLogger (LogStr, ToLogStr, toLogStr)
 
-type Logger = MonadReader (TimedFastLogger, IO ())
+class Logger a where
+    getLogger :: a -> LogType
 
-logLn :: (MonadIO m, Logger m) => Text -> m ()
+instance Logger Env where
+    getLogger = envLogger
+
+logLn :: (MonadIO m, MonadReader env m, Logger env) => Text -> m ()
 logLn msg = do
-    (logger, _) <- ask
-    liftIO $ logger $ prepare msg
+    env <- ask
+    liftIO $ fst (getLogger env) $ prepare msg
 
-abort :: (Exception e, MonadIO m, Logger m) => e -> Text -> m a
+abort :: (Exception e, MonadIO m, MonadReader env m, Logger env) => e -> Text -> m a
 abort e msg = do
-    (_, cleanup) <- ask
+    env <- ask
     logLn $ "Exception caught: " <> T.pack (displayException e)
     logLn $ "Additional information: " <> msg
-    liftIO cleanup
-    liftIO exitFailure
+    liftIO $ do
+        snd $ getLogger env -- Execute the cleanup action of the logger.
+        exitFailure
 
-halt :: (Exception e, MonadIO m, Logger m) => Text -> e -> m a
+halt :: (Exception e, MonadIO m, MonadReader env m, Logger env) => Text -> e -> m a
 halt msg e = abort e msg
 
 prepare :: ToLogStr msg => Text -> (msg -> LogStr)
