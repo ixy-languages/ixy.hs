@@ -4,6 +4,7 @@ module Lib.Ixgbe.Register
     ( Register(..)
     , clearMask
     , set
+    , waitSet
     , setMask
     , get
     , waitClear
@@ -49,6 +50,11 @@ data Register
     | TDLEN Int
     | TXDCTL Int
     | DMATXCTL
+    | EEC
+    | TDH Int
+    | TDT Int
+    | LINKS
+    | RXDCTL Int
     deriving (Show)
 
 instance Enum Register where
@@ -100,6 +106,13 @@ instance Enum Register where
     fromEnum (TDLEN i) = 0x06008 + (i * 0x40)
     fromEnum (TXDCTL i) = 0x06028 + (i * 0x40)
     fromEnum DMATXCTL = 0x04A80
+    fromEnum EEC = 0x10010
+    fromEnum (TDH i) = 0x06010 + (i * 0x40)
+    fromEnum (TDT i) = 0x06018 + (i * 0x40)
+    fromEnum LINKS = 0x042A4
+    fromEnum (RXDCTL i)
+        | i < 64 = 0x01028 + (i * 0x40)
+    fromEnum (RXDCTL i) = 0x0D028 + ((i - 64) * 0x40)
 
 set :: (MonadIO m, MonadReader env m, Device env) => Register -> Word32 -> m ()
 set reg value = do
@@ -119,6 +132,17 @@ waitClear reg mask = do
     inner 1
   where
     inner 0 = return ()
+    inner _ = do
+        liftIO $ usleep 10000
+        current <- get reg
+        inner (current .&. mask)
+
+waitSet :: (MonadIO m, MonadReader env m, Logger env, Device env) => Register -> Word32 -> m ()
+waitSet reg mask = do
+    logLn $ "Waiting for flags " <> show mask <> "in register " <> show reg <> "to clear."
+    inner 1
+  where
+    inner mask = return ()
     inner _ = do
         liftIO $ usleep 10000
         current <- get reg

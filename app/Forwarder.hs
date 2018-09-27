@@ -2,13 +2,12 @@
 
 module Main where
 
-import Lib (Env)
-import Lib.Pci
-import Lib.Prelude
+import Protolude
+
+import Lib (Env(..), init)
 
 import Control.Monad.Catch (MonadCatch, MonadThrow)
-import Data.Maybe (fromJust)
-import System.Log.FastLogger (LogType(LogStdout), TimeFormat, TimedFastLogger, newTimedFastLogger)
+import System.Log.FastLogger (LogType(LogStdout), TimeFormat, newTimedFastLogger)
 import System.Log.FastLogger.Date (newTimeCache)
 
 newtype App a = App
@@ -17,13 +16,13 @@ newtype App a = App
 
 main :: IO ()
 main = do
-    putStrLn ("Started." :: Text)
     tc <- newTimeCache ("[%Y-%m-%d %H:%M:%S]" :: TimeFormat)
-    logger <- newTimedFastLogger tc (LogStdout 4096)
-    let env = Env {envLogger=logger, envDevice=}
-    runReaderT (runApp run) (logger, cleanup)
+    (logger, cleanup) <- newTimedFastLogger tc (LogStdout 4096)
+    let env = Env {envLogger = (logger, cleanup)}
+    runReaderT (runApp run) env
     cleanup
 
 run :: App ()
 run = do
+    _ <- init 512 512
     return ()

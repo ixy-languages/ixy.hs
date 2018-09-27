@@ -3,6 +3,8 @@
 module Lib.Memory
     ( allocateDMA
     , allocateMemPool
+    , allocatePktBufBatch
+    , allocatePktBuf
     ) where
 
 import Lib.Log (Logger, halt, logLn)
@@ -88,8 +90,8 @@ allocateMemPool numEntries entrySize = do
         offset = fromIntegral (index * mpBufSize memPool)
 
 -- TODO: Add exception handling to this.
-allocateBatch :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, MonadState MemPool m) => Int -> m ([Ptr PacketBuf], Int)
-allocateBatch numBufs = do
+allocatePktBufBatch :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, MonadState MemPool m) => Int -> m ([Ptr PacketBuf], Int)
+allocatePktBufBatch numBufs = do
     logLn $ "Allocating a batch of packet buffers (numBufs=" <> show numBufs <> ")."
     memPool <- get
     let n = min (mpTop memPool) numBufs
@@ -98,7 +100,13 @@ allocateBatch numBufs = do
   where
     initBuf _ = do
         memPool <- get
-        put (MemPool {mpBase = mpBase memPool, mpBufSize = mpBufSize memPool, mpTop = mpTop memPool - 1})
+        put (memPool {mpTop = mpTop memPool - 1})
         return $
             castPtr
                 (nullPtr `plusPtr` (fromIntegral (ptrToWordPtr $ mpBase memPool) + (mpTop memPool - 1) * fromIntegral (mpBufSize memPool)))
+
+allocatePktBuf :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, MonadState MemPool m) => m (Ptr PacketBuf, Int)
+allocatePktBuf = do
+    (buf, n) <- allocatePktBufBatch 1
+    case buf of
+        [pb] -> return (pb, n)
