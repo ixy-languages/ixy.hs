@@ -154,6 +154,7 @@ startRxQueue id = do
     env <- ask
     let dev = getDevice env
     let queue = devRxQueues dev !! id
+    logLn $ "Device: " <> show dev
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
     forM_ [0 .. (fromIntegral (rxqNumEntries queue) - 1)] (setupDescriptor queue memPool)
     -- Enable queue and wait if necessary.

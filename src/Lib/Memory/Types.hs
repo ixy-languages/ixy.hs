@@ -19,7 +19,7 @@ data MemPool = MemPool
     { mpBase :: Ptr Word
     , mpBufSize :: Word
     , mpTop :: Int
-    }
+    } deriving (Show)
 
 instance Storable MemPool where
     sizeOf _ = sizeOf (undefined :: Ptr Word) + sizeOf (undefined :: Word) + sizeOf (undefined :: Int)

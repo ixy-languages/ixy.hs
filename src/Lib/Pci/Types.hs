@@ -10,7 +10,7 @@ import Text.Regex.PCRE ((=~))
 
 newtype BusDeviceFunction = BDF
     { unBusDeviceFunction :: Text
-    }
+    } deriving (Show)
 
 busDeviceFunction :: Text -> Maybe BusDeviceFunction
 busDeviceFunction bdfText

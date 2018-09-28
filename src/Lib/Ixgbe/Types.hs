@@ -22,7 +22,7 @@ data Dev = Dev
     , devNumTx :: Word
     , devRxQueues :: [RxQueue]
     , devTxQueues :: [TxQueue]
-    }
+    } deriving (Show)
 
 data Stats = Stats
     { stRxPackets :: Word
@@ -34,7 +34,7 @@ data Stats = Stats
 data ReceiveDescriptor = AdvRecvDesc
     { rdBufAddr :: Word64
     , rdHeaderAddr :: Word64
-    }
+    } deriving (Show)
 
 instance Storable ReceiveDescriptor where
     sizeOf rd = 2 * sizeOf (rdBufAddr rd :: Word64)
@@ -51,7 +51,7 @@ data TransmitDescriptor = AdvTransDesc
     { tdBufAddr :: Word64
     , tdCmdTypeLen :: Word32
     , tdOlInfoStatus :: Word32
-    }
+    } deriving (Show)
 
 instance Storable TransmitDescriptor where
     sizeOf _ = sizeOf (0 :: Word) + sizeOf (0 :: Word32) + sizeOf (0 :: Word32)
@@ -75,7 +75,7 @@ data RxQueue = RxQueue
     , rxqNumEntries :: Word
     , rxqMemPool :: MemPool
     , rxqRxIndex :: Int
-    }
+    } deriving (Show)
 
 instance Storable RxQueue where
     sizeOf _ = sizeOf (undefined :: Ptr ReceiveDescriptor) + sizeOf (0 :: Int) + sizeOf (undefined :: MemPool) + sizeOf (0 :: Int)
@@ -102,7 +102,7 @@ data TxQueue = TxQueue
     , txqNumEntries :: Word
     , txqCleanIndex :: Int
     , txqTxIndex :: Int
-    }
+    } deriving (Show)
 
 data LinkSpeed
     = NotReady
