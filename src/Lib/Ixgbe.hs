@@ -9,14 +9,14 @@ import Lib.Core (Env(..), LogType)
 import qualified Lib.Ixgbe.Register as R
 import Lib.Ixgbe.Types (Dev(..), LinkSpeed(..), ReceiveDescriptor(..), RxQueue(..), Stats(..), TransmitDescriptor(..), TxQueue(..))
 import Lib.Ixgbe.Types.Extended (Device(..))
-import Lib.Log (Logger(..), logLn)
+import Lib.Log (Logger(..), halt, logLn)
 import Lib.Memory (allocateDMA, allocateMemPool, allocatePktBuf)
 import Lib.Memory.Types (MemPool(..), PacketBuf(..), Translation(..))
 import Lib.Pci (mapResource)
 import Lib.Pci.Types (BusDeviceFunction(..))
 import Lib.Prelude
 
-import Control.Monad.Catch (MonadCatch)
+import Control.Monad.Catch (MonadCatch, catchAll)
 import Data.Bits ((.&.), (.|.), complement)
 import Data.List ((!!))
 import Foreign.Ptr (Ptr, castPtr)
@@ -41,7 +41,7 @@ init numRx numTx = do
     ptr <- runReaderT (mapResource "resource0") env
     let bdf = devBdf $ getDevice env
     let dev = Dev {devBdf = bdf, devBase = ptr, devNumRx = numRx, devNumTx = numTx, devRxQueues = [], devTxQueues = []}
-     in do dev' <- execStateT (runReaderT resetAndInit Env {envLogger = getLogger env, envDevice = dev}) dev
+     in do dev' <- execStateT (runReaderT (catchAll resetAndInit handler) Env {envLogger = getLogger env, envDevice = dev}) dev
            put env {envDevice = dev'}
   where
     resetAndInit :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env, MonadState Dev m) => m ()
@@ -76,6 +76,7 @@ init numRx numTx = do
         initLink = R.setMask R.AUTOC anRestart
           where
             anRestart = 0x00001000
+    handler = halt "Error during setup of the IXGBE device."
 
 readStats :: (MonadIO m, MonadReader env m, Logger env, Device env) => m Stats
 readStats = do
@@ -152,7 +153,7 @@ startRxQueue id = do
     logLn $ "Starting RX queue " <> show id <> "."
     env <- ask
     let dev = getDevice env
-    let queue = (devRxQueues dev) !! id
+    let queue = devRxQueues dev !! id
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
     forM_ [0 .. (fromIntegral (rxqNumEntries queue) - 1)] (setupDescriptor queue memPool)
     -- Enable queue and wait if necessary.
@@ -166,7 +167,7 @@ startRxQueue id = do
     rxdCtlEnable = 0x02000000
     setupDescriptor rxq memPool index = do
         desc <- liftIO $ peekByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor))
-        (packetBufPtr, _) <- evalStateT (allocatePktBuf) memPool
+        (packetBufPtr, _) <- evalStateT allocatePktBuf memPool
         pb <- liftIO $ peek packetBufPtr
         let desc' = desc {rdBufAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
          in liftIO $ pokeByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor)) desc'
@@ -197,6 +198,7 @@ initTx
     dev <- get
     let numTx = fromIntegral (devNumTx dev)
      in do txQueues <- forM [0 .. (numTx - 1)] setupQueue
+           put dev {devTxQueues = txQueues}
            -- Enable DMA.
            R.set R.DMATXCTL transmitEnable
   where

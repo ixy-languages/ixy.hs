@@ -56,9 +56,7 @@ allocateDMA size contiguous = handleIOError handler inner
             else size
 
 translate :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env) => Ptr Word -> m Word
-translate virt = do
-    logLn $ "Translating virtual address " <> show virt <> " to physical address with offset " <> show offset <> "."
-    handleIOError handler (liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner)
+translate virt = handleIOError handler (liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner)
   where
     path = Path.absFile "/proc/self/pagemap"
     offset = (fromIntegral wordPtr `quot` sysconfPageSize) * sizeOf wordPtr
