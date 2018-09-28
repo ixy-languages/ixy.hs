@@ -44,7 +44,9 @@ allocateDMA size contiguous = handleIOError handler inner
                 (_, h) <- PathIO.openBinaryTempFile (Path.absDir "/mnt/huge") (Path.relFile "ixy.huge")
                 PathIO.hSetFileSize h $ fromIntegral s
                 fd <- handleToFd h
-                memoryMap Nothing (fromIntegral s) [MemoryProtectionRead, MemoryProtectionWrite] MemoryMapShared (Just fd) 0
+                ptr <- memoryMap Nothing (fromIntegral s) [MemoryProtectionRead, MemoryProtectionWrite] MemoryMapShared (Just fd) 0
+                PathIO.hClose h
+                return ptr
         phy <- translate ptr
         return Translation {trVirtual = ptr, trPhysical = phy}
     s =
