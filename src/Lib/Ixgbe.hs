@@ -51,9 +51,6 @@ init numRx numTx = do
         logLn $ "Resetting device " <> bdf <> "."
         reset
         logLn $ "Initializing device " <> bdf <> "."
-        env <- ask
-        let (_, cleanup) = getLogger env
-        liftIO cleanup
         R.waitSet R.EEC autoReadDone
         R.waitSet R.RDRXCTL dmaInitCycleDone
         logLn $ "Initializing link for device " <> bdf <> "."
