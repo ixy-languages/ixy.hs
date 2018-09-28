@@ -14,7 +14,7 @@ import Lib.Prelude
 import Control.Monad.Catch (MonadCatch, handleIOError)
 import Data.Bits ((.&.), shift, shiftR)
 import Data.Foldable (mapM_)
-import Foreign.Marshal.Alloc (free, malloc)
+import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr, castPtr, nullPtr, plusPtr, ptrToWordPtr)
 import Foreign.Storable (peek, peekByteOff, pokeByteOff, sizeOf)
 import qualified System.Path as Path
@@ -64,10 +64,11 @@ translate virt = do
     wordPtr = ptrToWordPtr virt
     inner h = do
         PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
-        b <- malloc :: IO (Ptr Word)
-        _ <- PathIO.hGetBuf h b $ sizeOf virt
-        phy <- peek b
-        free b
+        phy <-
+            alloca
+                (\buf -> do
+                     _ <- PathIO.hGetBuf h buf $ sizeOf virt
+                     peek buf)
         return $ (phy .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wordPtr `mod` fromIntegral sysconfPageSize
     handler = halt "Error occured during translation of a virtual address."
 
