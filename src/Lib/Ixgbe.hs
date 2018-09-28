@@ -57,8 +57,8 @@ init numRx numTx = do
         initLink
         initRx
         initTx
-        rxQueues <- forM [0 .. (fromIntegral (devNumRx dev))] startRxQueue
-        forM_ [0 .. (fromIntegral (devNumTx dev))] startTxQueue
+        rxQueues <- forM [0 .. (fromIntegral (devNumRx dev) - 1)] startRxQueue
+        forM_ [0 .. (fromIntegral (devNumTx dev) - 1)] startTxQueue
         put dev {devRxQueues = rxQueues}
         setPromiscous True
         waitForLink 1000
