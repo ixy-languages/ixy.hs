@@ -19,7 +19,7 @@ import Foreign.Ptr (Ptr, castPtr, nullPtr, plusPtr, ptrToWordPtr)
 import Foreign.Storable (peek, peekByteOff, pokeByteOff, sizeOf)
 import qualified System.Path as Path
 import qualified System.Path.IO as PathIO
-import System.Posix.IO (handleToFd)
+import System.Posix.IO (closeFd, handleToFd)
 import System.Posix.Memory
     ( MemoryMapFlag(MemoryMapShared)
     , MemoryProtection(MemoryProtectionRead, MemoryProtectionWrite)
@@ -45,7 +45,7 @@ allocateDMA size contiguous = handleIOError handler inner
                 PathIO.hSetFileSize h $ fromIntegral s
                 fd <- handleToFd h
                 ptr <- memoryMap Nothing (fromIntegral s) [MemoryProtectionRead, MemoryProtectionWrite] MemoryMapShared (Just fd) 0
-                PathIO.hClose h
+                closeFd fd
                 return ptr
         phy <- translate ptr
         return Translation {trVirtual = ptr, trPhysical = phy}
