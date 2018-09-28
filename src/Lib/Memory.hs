@@ -54,19 +54,21 @@ allocateDMA size contiguous = handleIOError handler inner
             then shift (shiftR size hugePageBits + 1) hugePageBits
             else size
 
-translate :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env) => Ptr a -> m Word
-translate virt = handleIOError handler (liftIO $ PathIO.withBinaryFile path PathIO.ReadWriteMode inner)
+translate :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env) => Ptr Word -> m Word
+translate virt = do
+    logLn $ "Translating virtual address " <> show virt <> " to physical address with offset " <> show offset <> "."
+    handleIOError handler (liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner)
   where
     path = Path.absFile "/proc/self/pagemap"
-    offset = fromIntegral $ fromIntegral wPtr `quot` sysconfPageSize * sizeOf wPtr :: Integer
-    wPtr = ptrToWordPtr virt
+    offset = (fromIntegral wordPtr `quot` sysconfPageSize) * sizeOf wordPtr
+    wordPtr = ptrToWordPtr virt
     inner h = do
-        PathIO.hSeek h PathIO.AbsoluteSeek offset
+        PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
         b <- malloc :: IO (Ptr Word)
-        _ <- PathIO.hGetBuf h b $ sizeOf wPtr
+        _ <- PathIO.hGetBuf h b $ sizeOf virt
         phy <- peek b
         free b
-        return $ (phy .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wPtr `mod` fromIntegral sysconfPageSize
+        return $ (phy .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wordPtr `mod` fromIntegral sysconfPageSize
     handler = halt "Error occured during translation of a virtual address."
 
 -- TODO: Currently this whole thing will only work with a bufSize of 2048, because PackeBuf assumes
