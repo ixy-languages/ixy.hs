@@ -109,11 +109,11 @@ initRx
     -- Initialize queues
     dev <- get
     let numRx = fromIntegral (devNumRx dev)
-     in do rxQueues <- forM [0 .. numRx] setupQueue
+     in do rxQueues <- forM [0 .. (numRx - 1)] setupQueue
            put (dev {devRxQueues = rxQueues})
            -- Disable weird flags.
            R.setMask R.CTRL_EXT noSnoopDisable
-           forM_ [0 .. numRx] (\i -> R.clearMask (R.DCA_RXCTRL i) (shift 1 12))
+           forM_ [0 .. (numRx - 1)] (\i -> R.clearMask (R.DCA_RXCTRL i) (shift 1 12))
            -- Enable RX.
            R.setMask R.RXCTRL rxEnable
   where
@@ -154,7 +154,7 @@ startRxQueue id = do
     let dev = getDevice env
     let queue = (devRxQueues dev) !! id
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
-    forM_ [0 .. (fromIntegral (rxqNumEntries queue))] (setupDescriptor queue memPool)
+    forM_ [0 .. (fromIntegral (rxqNumEntries queue) - 1)] (setupDescriptor queue memPool)
     -- Enable queue and wait if necessary.
     R.setMask (R.RXDCTL id) rxdCtlEnable
     R.waitSet (R.RXDCTL id) rxdCtlEnable
@@ -196,7 +196,7 @@ initTx
     R.clearMask R.RTTDCS dcbArbiterDisable
     dev <- get
     let numTx = fromIntegral (devNumTx dev)
-     in do txQueues <- forM [0 .. numTx] setupQueue
+     in do txQueues <- forM [0 .. (numTx - 1)] setupQueue
            -- Enable DMA.
            R.set R.DMATXCTL transmitEnable
   where
@@ -275,4 +275,4 @@ linkSpeed = do
     links10G = 0x30000000
 
 memSet :: (MonadIO m) => Ptr Word -> Int -> Word8 -> m ()
-memSet ptr size value = liftIO $ forM_ [0 .. size] (\i -> pokeByteOff ptr i value)
+memSet ptr size value = liftIO $ forM_ [0 .. (size - 1)] (\i -> pokeByteOff ptr i value)
