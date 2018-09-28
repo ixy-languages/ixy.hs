@@ -139,7 +139,7 @@ waitClear reg mask = do
 
 waitSet :: (MonadIO m, MonadReader env m, Logger env, Device env) => Register -> Word32 -> m ()
 waitSet reg mask = do
-    logLn $ "Waiting for flags " <> show mask <> "in register " <> show reg <> "to clear."
+    logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to clear."
     inner 1
   where
     inner mask = return ()

@@ -64,12 +64,13 @@ translate virt = do
     wordPtr = ptrToWordPtr virt
     inner h = do
         PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
-        phy <-
-            alloca
-                (\buf -> do
-                     _ <- PathIO.hGetBuf h buf $ sizeOf virt
-                     peek buf)
-        return $ (phy .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wordPtr `mod` fromIntegral sysconfPageSize
+        alloca
+            (\buf -> do
+                 _ <- PathIO.hGetBuf h buf $ sizeOf virt
+                 calculateAddress <$> peek buf)
+      where
+        calculateAddress addr =
+            (addr .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wordPtr `mod` fromIntegral sysconfPageSize
     handler = halt "Error occured during translation of a virtual address."
 
 -- TODO: Currently this whole thing will only work with a bufSize of 2048, because PackeBuf assumes
