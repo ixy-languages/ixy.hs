@@ -26,10 +26,9 @@ main = do
                 { envLogger = (logger, cleanup)
                 , envDevice = Dev {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, devRxQueues = [], devTxQueues = []}
                 }
-    runReaderT (runApp run) env
-    cleanup
+     in do env' <- execStateT (init 512 512) env
+           runReaderT (runApp run) env'
+           cleanup
 
 run :: App ()
-run = do
-    _ <- init 512 512
-    return ()
+run = return ()

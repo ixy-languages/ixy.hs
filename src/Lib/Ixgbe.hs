@@ -35,14 +35,14 @@ numRxQueueEntries = 512
 numTxQueueEntries :: Word
 numTxQueueEntries = 512
 
-init :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => Word -> Word -> m Dev
+init :: (MonadCatch m, MonadIO m, MonadState Env m) => Word -> Word -> m ()
 init numRx numTx = do
-    env <- ask
-    ptr <- mapResource "resource0"
+    env <- get
+    ptr <- runReaderT (mapResource "resource0") env
     let bdf = devBdf $ getDevice env
-     in execStateT
-            (resetAndInit)
-            (Dev {devBdf = bdf, devBase = ptr, devNumRx = numRx, devNumTx = numTx, devRxQueues = [], devTxQueues = []})
+    let dev = Dev {devBdf = bdf, devBase = ptr, devNumRx = numRx, devNumTx = numTx, devRxQueues = [], devTxQueues = []}
+     in do dev' <- execStateT (runReaderT resetAndInit Env {envLogger = getLogger env, envDevice = dev}) dev
+           put env {envDevice = dev'}
   where
     resetAndInit :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env, MonadState Dev m) => m ()
     resetAndInit = do
@@ -53,7 +53,7 @@ init numRx numTx = do
         logLn $ "Initializing device " <> bdf <> "."
         env <- ask
         let (_, cleanup) = getLogger env
-        liftIO $ cleanup
+        liftIO cleanup
         R.waitSet R.EEC autoReadDone
         R.waitSet R.RDRXCTL dmaInitCycleDone
         logLn $ "Initializing link for device " <> bdf <> "."
