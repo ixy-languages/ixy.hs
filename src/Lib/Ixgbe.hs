@@ -177,10 +177,9 @@ startRxQueue id = do
   where
     rxdCtlEnable = 0x02000000
     setupDescriptor rxq memPool index = do
-        desc <- liftIO $ peekByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor))
         (packetBufPtr, _) <- evalStateT allocatePktBuf memPool
         pb <- liftIO $ peek packetBufPtr
-        let desc' = desc {rdPacketAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
+        let desc = ReadRx {rdPacketAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
          in liftIO $ pokeByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor)) desc'
 
 initTx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
