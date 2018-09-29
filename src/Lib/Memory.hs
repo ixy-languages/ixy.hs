@@ -97,7 +97,7 @@ allocatePktBufBatch numBufs = do
     logLn $ "Allocating a batch of packet buffers (numBufs=" <> show numBufs <> ")."
     memPool <- get
     let n = min (mpTop memPool) numBufs
-     in do bufs <- traverse initBuf [0 .. numBufs]
+     in do bufs <- traverse initBuf [0 .. (numBufs - 1)]
            return (bufs, n)
   where
     initBuf _ = do
