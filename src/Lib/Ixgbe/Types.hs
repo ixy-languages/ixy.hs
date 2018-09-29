@@ -37,44 +37,74 @@ data Stats = Stats
     , stTxBytes :: Word
     }
 
-data ReceiveDescriptor = AdvRecvDesc
-    { rdBufAddr :: Word64
-    , rdHeaderAddr :: Word64
-    } deriving (Show)
+-- data ReceiveDescriptor = AdvRecvDesc
+--     { rdBufAddr :: Word64
+--     , rdHeaderAddr :: Word64
+--     } deriving (Show)
+-- instance Storable ReceiveDescriptor where
+--     sizeOf rd = 2 * sizeOf (rdBufAddr rd :: Word64)
+--     alignment = sizeOf
+--     peek ptr = do
+--         addr <- peek (castPtr ptr :: Ptr Word64)
+--         hdr <- peekByteOff (castPtr ptr :: Ptr Word64) (sizeOf (undefined :: Word))
+--         return AdvRecvDesc {rdBufAddr = addr, rdHeaderAddr = hdr}
+--     poke ptr desc = do
+--         poke (castPtr ptr :: Ptr Word64) (rdBufAddr desc)
+--         pokeByteOff (castPtr ptr :: Ptr Word64) (sizeOf (undefined :: Word)) (rdHeaderAddr desc)
+-- data TransmitDescriptor = AdvTransDesc
+--     { tdBufAddr :: Word64
+--     , tdCmdTypeLen :: Word32
+--     , tdOlInfoStatus :: Word32
+--     } deriving (Show)
+-- instance Storable TransmitDescriptor where
+--     sizeOf _ = sizeOf (0 :: Word) + sizeOf (0 :: Word32) + sizeOf (0 :: Word32)
+--     alignment = sizeOf
+--     peek ptr = do
+--         addr <- peek (castPtr ptr :: Ptr Word64)
+--         cmdTypeLen <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (undefined :: Word))
+--         olInfoStatus <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (undefined :: Word) + sizeOf (undefined :: Word32))
+--         return AdvTransDesc {tdBufAddr = addr, tdCmdTypeLen = cmdTypeLen, tdOlInfoStatus = olInfoStatus}
+--     poke ptr desc = do
+--         poke (castPtr ptr :: Ptr Word64) addr
+--         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf addr) cmdTypeLen
+--         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf addr + sizeOf cmdTypeLen) olInfoStatus
+--       where
+--         addr = tdBufAddr desc
+--         cmdTypeLen = tdCmdTypeLen desc
+--         olInfoStatus = tdOlInfoStatus desc
+data ReceiveDescriptor
+    = ReadRx { rdPacketAddr :: Word64
+             , rdHeaderAddr :: Word64 }
+    | WritebackRx { rdStatusError :: Word32
+                  , rdLength :: Word16 }
 
 instance Storable ReceiveDescriptor where
-    sizeOf rd = 2 * sizeOf (rdBufAddr rd :: Word64)
+    sizeOf _ = 2 * sizeOf (0 :: Word64)
     alignment = sizeOf
     peek ptr = do
-        addr <- peek (castPtr ptr :: Ptr Word64)
-        hdr <- peekByteOff (castPtr ptr :: Ptr Word64) (sizeOf (undefined :: Word))
-        return AdvRecvDesc {rdBufAddr = addr, rdHeaderAddr = hdr}
-    poke ptr desc = do
-        poke (castPtr ptr :: Ptr Word64) (rdBufAddr desc)
-        pokeByteOff (castPtr ptr :: Ptr Word64) (sizeOf (undefined :: Word)) (rdHeaderAddr desc)
+        statusError <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64))
+        length <- peekByteOff (castPtr ptr :: Ptr Word16) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32))
+        return WritebackRx {rdStatusError = statusError, rdLength = length}
+    poke ptr rdesc = do
+        poke (castPtr ptr :: Ptr Word64) $ rdPacketAddr rdesc
+        pokeByteOff (castPtr ptr :: Ptr Word64) (sizeOf (0 :: Word64)) $ rdHeaderAddr rdesc
 
-data TransmitDescriptor = AdvTransDesc
-    { tdBufAddr :: Word64
-    , tdCmdTypeLen :: Word32
-    , tdOlInfoStatus :: Word32
-    } deriving (Show)
+data TransmitDescriptor
+    = ReadTx { tdBufAddr :: Word64
+             , tdCmdTypeLen :: Word32
+             , tdOlInfoStatus :: Word32 }
+    | WritebackTx { tdStatus :: Word32 }
 
 instance Storable TransmitDescriptor where
-    sizeOf _ = sizeOf (0 :: Word) + sizeOf (0 :: Word32) + sizeOf (0 :: Word32)
+    sizeOf _ = sizeOf (0 :: Word64) + sizeOf (0 :: Word32) + sizeOf (0 :: Word32)
     alignment = sizeOf
     peek ptr = do
-        addr <- peek (castPtr ptr :: Ptr Word64)
-        cmdTypeLen <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (undefined :: Word))
-        olInfoStatus <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (undefined :: Word) + sizeOf (undefined :: Word32))
-        return AdvTransDesc {tdBufAddr = addr, tdCmdTypeLen = cmdTypeLen, tdOlInfoStatus = olInfoStatus}
-    poke ptr desc = do
-        poke (castPtr ptr :: Ptr Word64) addr
-        pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf addr) cmdTypeLen
-        pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf addr + sizeOf cmdTypeLen) olInfoStatus
-      where
-        addr = tdBufAddr desc
-        cmdTypeLen = tdCmdTypeLen desc
-        olInfoStatus = tdOlInfoStatus desc
+        status <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32))
+        return WritebackTx {tdStatus = status}
+    poke ptr tdesc = do
+        poke (castPtr ptr :: Ptr Word64) $ tdBufAddr tdesc
+        pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc
+        pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32)) $ tdOlInfoStatus tdesc
 
 data RxQueue = RxQueue
     { rxqDescPtr :: Ptr ReceiveDescriptor

@@ -180,7 +180,7 @@ startRxQueue id = do
         desc <- liftIO $ peekByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor))
         (packetBufPtr, _) <- evalStateT allocatePktBuf memPool
         pb <- liftIO $ peek packetBufPtr
-        let desc' = desc {rdBufAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
+        let desc' = desc {rdPacketAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
          in liftIO $ pokeByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor)) desc'
 
 initTx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
@@ -296,5 +296,9 @@ linkSpeed = do
     links1G = 0x20000000
     links10G = 0x30000000
 
+-- receive :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m [PacketBuf]
+-- receive queueId = do
+--     dev <- get
+--     let queue = devRxQueues dev !! queueId
 memSet :: (MonadIO m) => Ptr Word -> Int -> Word8 -> m ()
 memSet ptr size value = liftIO $ forM_ [0 .. (size - 1)] (\i -> pokeByteOff ptr i value)
