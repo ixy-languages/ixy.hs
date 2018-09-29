@@ -148,7 +148,13 @@ initRx
         -- Set ring to empty at the start.
         R.set (R.RDH i) 0
         R.set (R.RDT i) 0
-        return RxQueue {rxqNumEntries = numRxQueueEntries, rxqRxIndex = 0, rxqDescPtr = castPtr (trVirtual t) :: Ptr ReceiveDescriptor}
+        return
+            RxQueue
+                { rxqNumEntries = numRxQueueEntries
+                , rxqMemPool = undefined
+                , rxqRxIndex = 0
+                , rxqDescPtr = castPtr (trVirtual t) :: Ptr ReceiveDescriptor
+                }
       where
         dropEnable = 0x10000000
 
