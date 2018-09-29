@@ -10,11 +10,11 @@ module Lib.Ixgbe.Register
     , waitClear
     ) where
 
-import Lib.Ixgbe.Types (Dev(..))
-import Lib.Ixgbe.Types.Extended (Device(..))
+import Lib.Ixgbe.Types (Dev(..), DeviceState)
 import Lib.Log (Logger, logLn)
 import Lib.Prelude hiding (get, mask)
 
+import qualified Control.Monad.State as State
 import Data.Bits ((.&.), (.|.), complement)
 import Foreign.Storable (peekByteOff, pokeByteOff)
 import System.Posix.Unistd (usleep)
@@ -114,46 +114,43 @@ instance Enum Register where
         | i < 64 = 0x01028 + (i * 0x40)
     fromEnum (RXDCTL i) = 0x0D028 + ((i - 64) * 0x40)
 
-set :: (MonadIO m, MonadReader env m, Device env) => Register -> Word32 -> m ()
+set :: (MonadIO m, DeviceState m) => Register -> Word32 -> m ()
 set reg value = do
-    env <- ask
-    let ptr = devBase $ getDevice env
+    dev <- State.get
+    let ptr = devBase dev
      in liftIO $ pokeByteOff ptr (fromEnum reg) value
 
-get :: (MonadIO m, MonadReader env m, Device env) => Register -> m Word32
+get :: (MonadIO m, DeviceState m) => Register -> m Word32
 get reg = do
-    env <- ask
-    let ptr = devBase $ getDevice env
+    dev <- State.get
+    let ptr = devBase dev
      in liftIO $ peekByteOff ptr (fromEnum reg)
 
-waitClear :: (MonadIO m, MonadReader env m, Logger env, Device env) => Register -> Word32 -> m ()
+waitClear :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
 waitClear reg mask = do
     logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to clear."
-    inner 1
-  where
-    inner 0 = return ()
-    inner _ = do
-        liftIO $ usleep 10000
-        current <- get reg
-        inner (current .&. mask)
+    waitUntil reg mask (== 0)
 
-waitSet :: (MonadIO m, MonadReader env m, Logger env, Device env) => Register -> Word32 -> m ()
+waitSet :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
 waitSet reg mask = do
-    logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to clear."
-    inner 1
-  where
-    inner mask = return ()
-    inner _ = do
-        liftIO $ usleep 10000
-        current <- get reg
-        inner (current .&. mask)
+    logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to be set."
+    waitUntil reg mask (== mask)
 
-setMask :: (MonadIO m, MonadReader env m, Device env) => Register -> Word32 -> m ()
+waitUntil :: (MonadIO m, DeviceState m) => Register -> Word32 -> (Word32 -> Bool) -> m ()
+waitUntil reg mask f = do
+    current <- get reg
+    if f $ current .&. mask
+        then return ()
+        else do
+            liftIO $ usleep 10000
+            waitUntil reg mask f
+
+setMask :: (MonadIO m, DeviceState m) => Register -> Word32 -> m ()
 setMask reg mask = do
     current <- get reg
     set reg (current .|. mask)
 
-clearMask :: (MonadIO m, MonadReader env m, Device env) => Register -> Word32 -> m ()
+clearMask :: (MonadIO m, DeviceState m) => Register -> Word32 -> m ()
 clearMask reg mask = do
     current <- get reg
     set reg (current .&. complement mask)

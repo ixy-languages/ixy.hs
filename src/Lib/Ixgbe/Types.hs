@@ -1,5 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE ConstraintKinds #-}
+
 module Lib.Ixgbe.Types
     ( Dev(..)
+    , DeviceState
     , Stats(..)
     , ReceiveDescriptor(..)
     , TransmitDescriptor(..)
@@ -14,6 +18,8 @@ import Lib.Prelude
 
 import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable, alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
+
+type DeviceState = MonadState Dev
 
 data Dev = Dev
     { devBase :: Ptr Word8

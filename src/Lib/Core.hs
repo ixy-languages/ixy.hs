@@ -12,5 +12,4 @@ type LogType = (TimedFastLogger, IO ())
 
 data Env = Env
     { envLogger :: LogType
-    , envDevice :: Dev
     }

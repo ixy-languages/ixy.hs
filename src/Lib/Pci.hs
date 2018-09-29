@@ -4,8 +4,7 @@ module Lib.Pci
     , mapResource
     ) where
 
-import Lib.Ixgbe.Types (Dev(..))
-import Lib.Ixgbe.Types.Extended (Device(..))
+import Lib.Ixgbe.Types (Dev(..), DeviceState)
 import Lib.Log (Logger, halt, logLn)
 import Lib.Pci.Types (BusDeviceFunction(unBusDeviceFunction))
 import Lib.Prelude hiding (writeFile)
@@ -25,10 +24,10 @@ base :: Path.AbsDir
 base = Path.dirPath "/sys/bus/pci/devices/"
 
 -- TODO: Check if reading then writing is not somehow out-of-ordered.
-enableDMA :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => m ()
+enableDMA :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
 enableDMA = do
-    env <- ask
-    let bdf = unBusDeviceFunction $ devBdf $ getDevice env
+    dev <- get
+    let bdf = unBusDeviceFunction $ devBdf dev
     let path = base </> Path.relPath (Text.unpack bdf) </> Path.filePath "config"
     handleIOError
         handler
@@ -47,10 +46,10 @@ enableDMA = do
     setDMA b = (B.head b .|. shift 1 busMasterEnableIndex) `B.cons` B.tail b
     handler = halt "Error occured during an attempt to enable DMA"
 
-mapResource :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => Text -> m (Ptr a)
+mapResource :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Text -> m (Ptr a)
 mapResource resource = do
-    env <- ask
-    let bdf = unBusDeviceFunction $ devBdf $ getDevice env
+    dev <- get
+    let bdf = unBusDeviceFunction $ devBdf dev
     let res = Path.relFile $ Text.unpack resource
     let path = base </> Path.relPath (Text.unpack bdf) </> res
     handleIOError
@@ -70,10 +69,10 @@ mapResource resource = do
   where
     handler = halt "Error occured during the mapping of a PCI resource"
 
-unbind :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => m ()
+unbind :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
 unbind = do
-    env <- ask
-    let bdf = unBusDeviceFunction $ devBdf $ getDevice env
+    dev <- get
+    let bdf = unBusDeviceFunction $ devBdf dev
     let path = base </> Path.relPath (Text.unpack bdf) </> Path.filePath "driver/unbind"
     handleIOError
         (handler bdf)

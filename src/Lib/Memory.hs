@@ -15,9 +15,8 @@ import Control.Monad.Catch (MonadCatch, handleIOError)
 import Data.Bits ((.&.), shift, shiftR)
 import qualified Data.ByteString as B
 import Data.Foldable (mapM_)
-import Foreign.Marshal.Alloc (alloca)
 import Foreign.Ptr (Ptr, castPtr, nullPtr, plusPtr, ptrToWordPtr)
-import Foreign.Storable (peek, peekByteOff, pokeByteOff, sizeOf)
+import Foreign.Storable (peekByteOff, pokeByteOff, sizeOf)
 import qualified System.Path as Path
 import qualified System.Path.IO as PathIO
 import System.Posix.IO (closeFd, handleToFd)
@@ -110,6 +109,5 @@ allocatePktBufBatch numBufs = do
 
 allocatePktBuf :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, MonadState MemPool m) => m (Ptr PacketBuf, Int)
 allocatePktBuf = do
-    (buf, n) <- allocatePktBufBatch 1
-    case buf of
-        [pb] -> return (pb, n)
+    ([buf], n) <- allocatePktBufBatch 1
+    return (buf, n)

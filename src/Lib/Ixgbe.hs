@@ -5,13 +5,20 @@ module Lib.Ixgbe
     ( init
     ) where
 
-import Lib.Core (Env(..), LogType)
 import qualified Lib.Ixgbe.Register as R
-import Lib.Ixgbe.Types (Dev(..), LinkSpeed(..), ReceiveDescriptor(..), RxQueue(..), Stats(..), TransmitDescriptor(..), TxQueue(..))
-import Lib.Ixgbe.Types.Extended (Device(..))
+import Lib.Ixgbe.Types
+    ( Dev(..)
+    , DeviceState
+    , LinkSpeed(..)
+    , ReceiveDescriptor(..)
+    , RxQueue(..)
+    , Stats(..)
+    , TransmitDescriptor(..)
+    , TxQueue(..)
+    )
 import Lib.Log (Logger(..), halt, logLn)
 import Lib.Memory (allocateDMA, allocateMemPool, allocatePktBuf)
-import Lib.Memory.Types (MemPool(..), PacketBuf(..), Translation(..))
+import Lib.Memory.Types (PacketBuf(..), Translation(..))
 import Lib.Pci (mapResource)
 import Lib.Pci.Types (BusDeviceFunction(..))
 import Lib.Prelude
@@ -20,7 +27,7 @@ import Control.Monad.Catch (MonadCatch, catchAll)
 import Data.Bits ((.&.), (.|.), complement)
 import Data.List ((!!))
 import Foreign.Ptr (Ptr, castPtr)
-import Foreign.Storable (alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
+import Foreign.Storable (peek, peekByteOff, pokeByteOff, sizeOf)
 import System.Posix.Unistd (usleep)
 
 maxRxQueueEntries :: Int
@@ -35,16 +42,14 @@ numRxQueueEntries = 512
 numTxQueueEntries :: Word
 numTxQueueEntries = 512
 
-init :: (MonadCatch m, MonadIO m, MonadState Env m) => Word -> Word -> m ()
+init :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Word -> Word -> m ()
 init numRx numTx = do
-    env <- get
-    ptr <- runReaderT (mapResource "resource0") env
-    let bdf = devBdf $ getDevice env
-    let dev = Dev {devBdf = bdf, devBase = ptr, devNumRx = numRx, devNumTx = numTx, devRxQueues = [], devTxQueues = []}
-     in do dev' <- execStateT (runReaderT (catchAll resetAndInit handler) Env {envLogger = getLogger env, envDevice = dev}) dev
-           put env {envDevice = dev'}
+    dev <- get
+    ptr <- mapResource "resource0"
+    put dev {devBase = ptr, devNumTx = numTx, devNumRx = numRx, devRxQueues = [], devTxQueues = []}
+    catchAll resetAndInit handler
   where
-    resetAndInit :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env, MonadState Dev m) => m ()
+    resetAndInit :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
     resetAndInit = do
         dev <- get
         let bdf = unBusDeviceFunction $ devBdf dev
@@ -55,12 +60,13 @@ init numRx numTx = do
         R.waitSet R.RDRXCTL dmaInitCycleDone
         logLn $ "Initializing link for device " <> bdf <> "."
         initLink
+        _ <- readStats
         initRx
         initTx
         rxQueues <- forM [0 .. (fromIntegral (devNumRx dev) - 1)] startRxQueue
         forM_ [0 .. (fromIntegral (devNumTx dev) - 1)] startTxQueue
         put dev {devRxQueues = rxQueues}
-        setPromiscous True
+        setPromiscous
         waitForLink 1000
       where
         autoReadDone = 0x00000200
@@ -78,7 +84,7 @@ init numRx numTx = do
             anRestart = 0x00001000
     handler = halt "Error during setup of the IXGBE device."
 
-readStats :: (MonadIO m, MonadReader env m, Logger env, Device env) => m Stats
+readStats :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m Stats
 readStats = do
     rxPackets <- R.get R.GPRC
     txPackets <- R.get R.GPTC
@@ -94,7 +100,7 @@ readStats = do
             , stTxBytes = fromIntegral txBytesL + fromIntegral txBytesH
             }
 
-initRx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env, MonadState Dev m) => m ()
+initRx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m, MonadState Dev m) => m ()
 initRx
     -- Disable RX while configuring.
  = do
@@ -123,16 +129,16 @@ initRx
     crcStrip = 0x00000002
     broadcastAcceptMode = 0x00000400
     noSnoopDisable = 0x00010000
-    setupQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => Int -> m RxQueue
+    setupQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m RxQueue
     setupQueue i = do
         logLn $ "Initializing RX queue " <> show i <> "."
         -- Enable advanced Rx descriptors.
         advRxDescEnable <- fmap (.|. (0x02000000 :: Word32)) ((.&. (0xF1FFFFFF :: Word32)) <$> R.get (R.SRRCTL i))
         R.set (R.SRRCTL i) $ fromIntegral advRxDescEnable
         -- Enable dropping of packets if no rx descriptors are available.
-        R.setMask (R.SRRCTL i) $ fromIntegral dropEnable
+        R.setMask (R.SRRCTL i) dropEnable
         -- Setup descriptor ring.
-        let ringSize = numRxQueueEntries * fromIntegral (sizeOf (AdvRecvDesc {}))
+        let ringSize = numRxQueueEntries * fromIntegral (sizeOf (undefined :: ReceiveDescriptor))
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
         R.set (R.RDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
@@ -142,17 +148,14 @@ initRx
         -- Set ring to empty at the start.
         R.set (R.RDH i) 0
         R.set (R.RDT i) 0
-        env <- ask
-        let dev = getDevice env
-         in return RxQueue {rxqNumEntries = numRxQueueEntries, rxqRxIndex = 0, rxqDescPtr = castPtr (trVirtual t) :: Ptr ReceiveDescriptor}
+        return RxQueue {rxqNumEntries = numRxQueueEntries, rxqRxIndex = 0, rxqDescPtr = castPtr (trVirtual t) :: Ptr ReceiveDescriptor}
       where
         dropEnable = 0x10000000
 
-startRxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => Int -> m RxQueue
+startRxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m RxQueue
 startRxQueue id = do
     logLn $ "Starting RX queue " <> show id <> "."
-    env <- ask
-    let dev = getDevice env
+    dev <- get
     let queue = devRxQueues dev !! id
     logLn $ "Device: " <> show dev
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
@@ -173,19 +176,7 @@ startRxQueue id = do
         let desc' = desc {rdBufAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
          in liftIO $ pokeByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor)) desc'
 
-startTxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => Int -> m ()
-startTxQueue id = do
-    logLn $ "Starting TX queue " <> show id <> "."
-        -- Tx queue starts empty.
-    R.set (R.TDH id) 0
-    R.set (R.TDT id) 0
-        -- Enable queue and wait if necessary.
-    R.setMask (R.TXDCTL id) txdCtlEnable
-    R.waitSet (R.TXDCTL id) txdCtlEnable
-  where
-    txdCtlEnable = 0x02000000
-
-initTx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env, MonadState Dev m) => m ()
+initTx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
 initTx
     -- CRC Offload and small packet padding.
  = do
@@ -207,7 +198,7 @@ initTx
     packetBuffer = 0x0000A000 -- 40KB
     dcbArbiterDisable = 0x00000040
     transmitEnable = 0x00000001
-    setupQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, Device env) => Int -> m TxQueue
+    setupQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m TxQueue
     setupQueue i = do
         logLn $ "Initializing TX queue " <> show i <> "."
         -- Setup descriptor ring.
@@ -219,31 +210,43 @@ initTx
         R.set (R.TDLEN i) $ fromIntegral ringSize
         logLn $ "Tx ring " <> show i <> " | Physical: " <> show (trPhysical t) <> " | Virtual: " <> show (trVirtual t)
         -- Descriptor writeback magic values.
-        txdCtl <-
-            fmap
-                (.|. (36 .|. (shift 8 8) .|. (shift 4 16)))
-                (fmap (.&. complement (shift 0x3F 16 .|. shift 0x3F 8 .|. 0x3F)) (R.get (R.TXDCTL i)))
+        -- txdCtl <-
+        --     fmap (.|. (36 .|. shift 8 8 .|. shift 4 16) . (.&. (complement $ shift 0x3F 16 .|. shift 0x3F 8 .|. 0x3F))) $ R.get (R.TXDCTL i)
+        txdCtl <- wbMagic <$> R.get (R.TXDCTL i)
         R.set (R.TXDCTL i) txdCtl
-        env <- ask
-        let dev = getDevice env
-         in return TxQueue {txqNumEntries = numTxQueueEntries, txqDescPtr = castPtr (trVirtual t) :: Ptr TransmitDescriptor}
+        return
+            TxQueue
+                { txqNumEntries = numTxQueueEntries
+                , txqTxIndex = 0
+                , txqCleanIndex = 0
+                , txqDescPtr = castPtr (trVirtual t) :: Ptr TransmitDescriptor
+                }
+      where
+        wbMagic = (.|. 0x40824) . (.&. complement 0x3F3F3F)
 
-setPromiscous :: (MonadIO m, MonadReader env m, Logger env, Device env) => Bool -> m ()
-setPromiscous flag = do
-    env <- ask
-    let bdf = unBusDeviceFunction $ devBdf $ getDevice env
-     in if flag
-            then do
-                logLn $ "Enabling promiscous mode for device " <> bdf <> "."
-                R.set R.FCTRL (unicastPromiscousEnable .|. multicastPromiscousEnable)
-            else do
-                logLn $ "Enabling promiscous mode for device " <> bdf <> "."
-                R.set R.FCTRL (unicastPromiscousEnable .|. multicastPromiscousEnable)
+startTxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m ()
+startTxQueue id = do
+    logLn $ "Starting TX queue " <> show id <> "."
+        -- Tx queue starts empty.
+    R.set (R.TDH id) 0
+    R.set (R.TDT id) 0
+        -- Enable queue and wait if necessary.
+    R.setMask (R.TXDCTL id) txdCtlEnable
+    R.waitSet (R.TXDCTL id) txdCtlEnable
+  where
+    txdCtlEnable = 0x02000000
+
+setPromiscous :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
+setPromiscous = do
+    dev <- get
+    let bdf = unBusDeviceFunction $ devBdf dev
+    logLn $ "Enabling promiscous mode for device " <> bdf <> "."
+    R.set R.FCTRL (unicastPromiscousEnable .|. multicastPromiscousEnable)
   where
     multicastPromiscousEnable = 0x00000100
     unicastPromiscousEnable = 0x00000200
 
-waitForLink :: (MonadIO m, MonadReader env m, Logger env, Device env) => Int -> m ()
+waitForLink :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m ()
 waitForLink maxTries = do
     logLn "Waiting for link..."
     waitUntil 0
@@ -260,18 +263,27 @@ waitForLink maxTries = do
             Speed1G -> logLn "Link speed was set to 1GBit/s"
             Speed10G -> logLn "Link speed was set to 10GBit/s"
 
-linkSpeed :: (MonadIO m, MonadReader env m, Logger env, Device env) => m LinkSpeed
+linkSpeed :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m LinkSpeed
 linkSpeed = do
     links <- R.get R.LINKS
     if (links .&. linksUp) == 0
         then return NotReady
         else return $
-             case (links .&. links82599) of
-                 links100M -> Speed100M
-                 links1G -> Speed1G
-                 links10G -> Speed10G
+             let l = links .&. links82599
+              in case l
+                     -- links100M -> Speed100M
+                     -- links1G -> Speed1G
+                     -- links10G -> Speed10G
+                       of
+                     _
+                         | l == links100M -> Speed100M
+                     _
+                         | l == links1G -> Speed1G
+                     _
+                         | l == links10G -> Speed10G
+                     _ -> NotReady
   where
-    linksUp = 0x4000000000
+    linksUp = 0x40000000
     links82599 = 0x30000000
     links100M = 0x10000000
     links1G = 0x20000000
