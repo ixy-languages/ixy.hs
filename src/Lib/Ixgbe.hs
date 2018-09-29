@@ -163,6 +163,7 @@ startRxQueue id = do
     dev <- get
     let queue = devRxQueues dev !! id
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
+    logLn $ "Allocating " <> show (rxqNumEntries queue) <> " packet buffers for RX queue " <> show id <> "."
     forM_ [0 .. (fromIntegral (rxqNumEntries queue) - 1)] (setupDescriptor queue memPool)
     -- Enable queue and wait if necessary.
     R.setMask (R.RXDCTL id) rxdCtlEnable

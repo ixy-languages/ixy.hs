@@ -94,7 +94,6 @@ allocateMemPool numEntries entrySize = do
 -- TODO: Add exception handling to this.
 allocatePktBufBatch :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, MonadState MemPool m) => Int -> m ([Ptr PacketBuf], Int)
 allocatePktBufBatch numBufs = do
-    logLn $ "Allocating a batch of packet buffers (numBufs=" <> show numBufs <> ")."
     memPool <- get
     let n = min (mpTop memPool) numBufs
      in do bufs <- traverse initBuf [0 .. (numBufs - 1)]
