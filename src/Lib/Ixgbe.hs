@@ -18,7 +18,7 @@ import Lib.Ixgbe.Types
     )
 import Lib.Log (Logger(..), halt, logLn)
 import Lib.Memory (allocateDMA, allocateMemPool, allocatePktBuf)
-import Lib.Memory.Types (PacketBuf(..), Translation(..))
+import Lib.Memory.Types (MemPool(..), PacketBuf(..), Translation(..))
 import Lib.Pci (mapResource)
 import Lib.Pci.Types (BusDeviceFunction(..))
 import Lib.Prelude
@@ -26,7 +26,7 @@ import Lib.Prelude
 import Control.Monad.Catch (MonadCatch, catchAll)
 import Data.Bits ((.&.), (.|.), complement)
 import Data.List ((!!))
-import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Ptr (Ptr, castPtr, nullPtr)
 import Foreign.Storable (peek, peekByteOff, pokeByteOff, sizeOf)
 import System.Posix.Unistd (usleep)
 
@@ -63,9 +63,8 @@ init numRx numTx = do
         _ <- readStats
         initRx
         initTx
-        rxQueues <- forM [0 .. (fromIntegral (devNumRx dev) - 1)] startRxQueue
+        forM_ [0 .. (fromIntegral (devNumRx dev) - 1)] startRxQueue
         forM_ [0 .. (fromIntegral (devNumTx dev) - 1)] startTxQueue
-        put dev {devRxQueues = rxQueues}
         setPromiscous
         waitForLink 1000
       where
@@ -151,14 +150,14 @@ initRx
         return
             RxQueue
                 { rxqNumEntries = numRxQueueEntries
-                , rxqMemPool = undefined
+                , rxqMemPool = MemPool {mpBase = nullPtr, mpBufSize = 0, mpTop = 0} -- Dummy MemPool
                 , rxqRxIndex = 0
                 , rxqDescPtr = castPtr (trVirtual t) :: Ptr ReceiveDescriptor
                 }
       where
         dropEnable = 0x10000000
 
-startRxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m RxQueue
+startRxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m ()
 startRxQueue id = do
     logLn $ "Starting RX queue " <> show id <> "."
     dev <- get
@@ -172,7 +171,9 @@ startRxQueue id = do
     -- Rx queue starts out full.
     R.set (R.RDH id) 0
     R.set (R.RDT id) $ fromIntegral (rxqNumEntries queue - 1)
-    return queue {rxqMemPool = memPool}
+    -- return queue {rxqMemPool = memPool}
+    let (x, _:ys) = splitAt id $ devRxQueues dev
+    put dev {devRxQueues = x ++ queue {rxqMemPool = memPool} : ys}
   where
     rxdCtlEnable = 0x02000000
     setupDescriptor rxq memPool index = do
