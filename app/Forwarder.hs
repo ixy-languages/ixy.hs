@@ -29,4 +29,4 @@ run :: App ()
 run = do
     let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
     let dev = Dev {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, devRxQueues = [], devTxQueues = []}
-     in evalStateT (init 512 512) dev
+     in evalStateT (init 1 1) dev
