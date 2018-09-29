@@ -11,6 +11,7 @@ import Data.Maybe (fromJust)
 import Foreign.Ptr (nullPtr)
 import System.Log.FastLogger (LogType(LogStdout), TimeFormat, newTimedFastLogger)
 import System.Log.FastLogger.Date (newTimeCache)
+import System.Posix.Unistd (usleep)
 
 newtype App a = App
     { runApp :: ReaderT Env IO a
@@ -30,6 +31,15 @@ run = do
     let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
     let dev = Dev {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, devRxQueues = [], devTxQueues = []}
      in do dev' <- execStateT (init 1 1) dev
+           liftIO $ usleep 10000000
+           -- readAndWait dev'
            packetBufs <- evalStateT (receive 0) dev'
-           liftIO $ putStrLn $ (show packetBufs :: Text)
+           liftIO $ putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
            return ()
+  -- where
+  --   readAndWait dev = do
+        -- packetBufs <- evalStateT (receive 0) dev
+  --       liftIO $ do
+            -- putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
+  --           usleep 1000000
+  --       readAndWait
