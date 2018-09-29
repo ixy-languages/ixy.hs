@@ -4,7 +4,7 @@ module Main where
 
 import Protolude
 
-import Lib (Dev(..), Env(..), busDeviceFunction, init)
+import Lib (Dev(..), Env(..), busDeviceFunction, init, receive)
 
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Data.Maybe (fromJust)
@@ -29,4 +29,7 @@ run :: App ()
 run = do
     let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
     let dev = Dev {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, devRxQueues = [], devTxQueues = []}
-     in evalStateT (init 1 1) dev
+     in do dev' <- execStateT (init 1 1) dev
+           packetBufs <- evalStateT (receive 0) dev'
+           liftIO $ putStrLn $ (show packetBufs :: Text)
+           return ()

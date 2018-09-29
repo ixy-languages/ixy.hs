@@ -3,7 +3,6 @@ module Lib.Core
     , LogType
     ) where
 
-import Lib.Ixgbe.Types (Dev(..))
 import Lib.Prelude
 
 import System.Log.FastLogger (TimedFastLogger)

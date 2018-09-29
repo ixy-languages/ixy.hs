@@ -8,13 +8,16 @@ For more information on how to write Haddock comments check the user guide:
 -}
 module Lib
     ( init
+    , receive
     , Env(..)
+    , PacketBuf(..)
     , Dev(..)
     , BusDeviceFunction(..)
     , busDeviceFunction
     ) where
 
 import Lib.Core (Env(..))
-import Lib.Ixgbe (init)
+import Lib.Ixgbe (init, receive)
 import Lib.Ixgbe.Types (Dev(..))
+import Lib.Memory.Types (PacketBuf(..))
 import Lib.Pci.Types (BusDeviceFunction(..), busDeviceFunction)

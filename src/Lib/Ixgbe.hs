@@ -3,6 +3,7 @@
 
 module Lib.Ixgbe
     ( init
+    , receive
     ) where
 
 import qualified Lib.Ixgbe.Register as R
@@ -25,9 +26,12 @@ import Lib.Prelude
 
 import Control.Monad.Catch (MonadCatch, catchAll)
 import Data.Bits ((.&.), (.|.), complement)
+import Data.CircularList (focus, fromList, rotR)
 import Data.List ((!!))
-import Foreign.Ptr (Ptr, castPtr, nullPtr)
-import Foreign.Storable (peek, peekByteOff, pokeByteOff, sizeOf)
+import Data.Maybe (fromJust)
+import Foreign.Ptr (Ptr, castPtr, nullPtr, plusPtr)
+import Foreign.Storable (peek, peekByteOff, poke, pokeByteOff, sizeOf)
+import System.IO.Error (userError)
 import System.Posix.Unistd (usleep)
 
 maxRxQueueEntries :: Int
@@ -147,12 +151,20 @@ initRx
         -- Set ring to empty at the start.
         R.set (R.RDH i) 0
         R.set (R.RDT i) 0
+        -- Construct Rx queue.
+        let base = castPtr (trVirtual t) :: Ptr ReceiveDescriptor
+        let ptrs =
+                fromList $
+                zip
+                    [ base `plusPtr` fromIntegral (i * fromIntegral (sizeOf (undefined :: ReceiveDescriptor)))
+                    | i <- [0 .. (numRxQueueEntries - 1)]
+                    ] $
+                repeat nullPtr
         return
             RxQueue
                 { rxqNumEntries = numRxQueueEntries
                 , rxqMemPool = MemPool {mpBase = nullPtr, mpBufSize = 0, mpTop = 0} -- Dummy MemPool
-                , rxqRxIndex = 0
-                , rxqDescPtr = castPtr (trVirtual t) :: Ptr ReceiveDescriptor
+                , rxqDescPtrs = ptrs
                 }
       where
         dropEnable = 0x10000000
@@ -164,23 +176,27 @@ startRxQueue id = do
     let queue = devRxQueues dev !! id
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
     logLn $ "Allocating " <> show (rxqNumEntries queue) <> " packet buffers for RX queue " <> show id <> "."
-    forM_ [0 .. (fromIntegral (rxqNumEntries queue) - 1)] (setupDescriptor queue memPool)
+    descPtrs <- forM (rxqDescPtrs queue) $ setupDescriptor memPool
     -- Enable queue and wait if necessary.
     R.setMask (R.RXDCTL id) rxdCtlEnable
     R.waitSet (R.RXDCTL id) rxdCtlEnable
     -- Rx queue starts out full.
     R.set (R.RDH id) 0
     R.set (R.RDT id) $ fromIntegral (rxqNumEntries queue - 1)
-    -- return queue {rxqMemPool = memPool}
     let (x, _:ys) = splitAt id $ devRxQueues dev
-    put dev {devRxQueues = x ++ queue {rxqMemPool = memPool} : ys}
+    put dev {devRxQueues = x ++ queue {rxqMemPool = memPool, rxqDescPtrs = descPtrs} : ys}
   where
     rxdCtlEnable = 0x02000000
-    setupDescriptor rxq memPool index = do
-        (packetBufPtr, _) <- evalStateT allocatePktBuf memPool
-        pb <- liftIO $ peek packetBufPtr
-        let desc = ReadRx {rdPacketAddr = fromIntegral (pbPhysical pb), rdHeaderAddr = 0}
-         in liftIO $ pokeByteOff (rxqDescPtr rxq) (index * sizeOf (undefined :: ReceiveDescriptor)) desc
+    setupDescriptor memPool (descPtr, _) = do
+        dev <- get
+        let queue = devRxQueues dev !! id
+        ((pbPtr, _), memPool') <- runStateT allocatePktBuf memPool
+        let (x, _:ys) = splitAt id $ devRxQueues dev
+         in do put dev {devRxQueues = x ++ queue {rxqMemPool = memPool'} : ys}
+        packetBuf <- liftIO $ peek pbPtr
+        let desc = ReadRx {rdPacketAddr = fromIntegral $ pbPhysical packetBuf, rdHeaderAddr = 0}
+         in do liftIO $ poke descPtr desc
+               return (descPtr, pbPtr)
 
 initTx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
 initTx
@@ -220,13 +236,15 @@ initTx
         --     fmap (.|. (36 .|. shift 8 8 .|. shift 4 16) . (.&. (complement $ shift 0x3F 16 .|. shift 0x3F 8 .|. 0x3F))) $ R.get (R.TXDCTL i)
         txdCtl <- wbMagic <$> R.get (R.TXDCTL i)
         R.set (R.TXDCTL i) txdCtl
-        return
-            TxQueue
-                { txqNumEntries = numTxQueueEntries
-                , txqTxIndex = 0
-                , txqCleanIndex = 0
-                , txqDescPtr = castPtr (trVirtual t) :: Ptr TransmitDescriptor
-                }
+        let base = castPtr (trVirtual t) :: Ptr TransmitDescriptor
+        let ptrs =
+                fromList $
+                zip
+                    [ base `plusPtr` fromIntegral (i * fromIntegral (sizeOf (undefined :: ReceiveDescriptor)))
+                    | i <- [0 .. (numRxQueueEntries - 1)]
+                    ] $
+                repeat nullPtr
+        return TxQueue {txqNumEntries = numTxQueueEntries, txqCleanIndex = 0, txqDescPtrs = ptrs}
       where
         wbMagic = (.|. 0x40824) . (.&. complement 0x3F3F3F)
 
@@ -276,11 +294,7 @@ linkSpeed = do
         then return NotReady
         else return $
              let l = links .&. links82599
-              in case l
-                     -- links100M -> Speed100M
-                     -- links1G -> Speed1G
-                     -- links10G -> Speed10G
-                       of
+              in case l of
                      _
                          | l == links100M -> Speed100M
                      _
@@ -295,9 +309,38 @@ linkSpeed = do
     links1G = 0x20000000
     links10G = 0x30000000
 
--- receive :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m [PacketBuf]
--- receive queueId = do
---     dev <- get
---     let queue = devRxQueues dev !! queueId
+receive :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m [PacketBuf]
+receive queueId = do
+    dev <- get
+    let queue = devRxQueues dev !! queueId
+    let (descPtr, pbPtr) = fromJust $ focus $ rxqDescPtrs queue
+    descriptor <- liftIO $ peek descPtr
+    let status = rdStatusError descriptor
+    if isDone status
+        then if isEOP status == False
+                 then halt "End of packet in rx descriptor was not set." $ userError "Multi-segment packets not supported."
+                 else do
+                     packetBuf <- readPacket descriptor pbPtr
+                     resetDescriptor descPtr
+                     let (x, _:ys) = splitAt queueId $ devRxQueues dev
+                      in do put dev {devRxQueues = x ++ queue {rxqDescPtrs = rotR $ rxqDescPtrs queue} : ys}
+                            (packetBuf :) <$> receive queueId
+        else return []
+  where
+    readPacket desc pbPtr = do
+        pb <- liftIO $ peek pbPtr
+        return pb {pbBufSize = fromIntegral $ rdLength desc}
+    resetDescriptor descPtr = do
+        dev <- get
+        let queue = devRxQueues dev !! queueId
+        ((pbPtr, _), memPool) <- runStateT allocatePktBuf (rxqMemPool queue)
+        let (x, _:ys) = splitAt queueId $ devRxQueues dev
+        put dev {devRxQueues = x ++ queue {rxqMemPool = memPool} : ys}
+        pb <- liftIO $ peek pbPtr
+        let desc = ReadRx {rdPacketAddr = fromIntegral $ pbPhysical pb, rdHeaderAddr = 0}
+         in liftIO $ poke descPtr desc
+    isDone s = s .&. 0x01 /= 0
+    isEOP s = s .&. 0x02 == 0
+
 memSet :: (MonadIO m) => Ptr Word -> Int -> Word8 -> m ()
 memSet ptr size value = liftIO $ forM_ [0 .. (size - 1)] (\i -> pokeByteOff ptr i value)

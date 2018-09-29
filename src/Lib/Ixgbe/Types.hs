@@ -12,10 +12,11 @@ module Lib.Ixgbe.Types
     , LinkSpeed(..)
     ) where
 
-import Lib.Memory.Types (MemPool(..))
+import Lib.Memory.Types (MemPool(..), PacketBuf(..))
 import Lib.Pci.Types (BusDeviceFunction)
 import Lib.Prelude
 
+import Data.CircularList (CList)
 import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable, alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
 
@@ -30,6 +31,18 @@ data Dev = Dev
     , devTxQueues :: [TxQueue]
     } deriving (Show)
 
+data RxQueue = RxQueue
+    { rxqDescPtrs :: CList (Ptr ReceiveDescriptor, Ptr PacketBuf)
+    , rxqNumEntries :: Word
+    , rxqMemPool :: MemPool
+    } deriving (Show)
+
+data TxQueue = TxQueue
+    { txqDescPtrs :: CList (Ptr TransmitDescriptor, Ptr PacketBuf)
+    , txqNumEntries :: Word
+    , txqCleanIndex :: Int
+    } deriving (Show)
+
 data Stats = Stats
     { stRxPackets :: Word
     , stTxPackets :: Word
@@ -37,41 +50,6 @@ data Stats = Stats
     , stTxBytes :: Word
     }
 
--- data ReceiveDescriptor = AdvRecvDesc
---     { rdBufAddr :: Word64
---     , rdHeaderAddr :: Word64
---     } deriving (Show)
--- instance Storable ReceiveDescriptor where
---     sizeOf rd = 2 * sizeOf (rdBufAddr rd :: Word64)
---     alignment = sizeOf
---     peek ptr = do
---         addr <- peek (castPtr ptr :: Ptr Word64)
---         hdr <- peekByteOff (castPtr ptr :: Ptr Word64) (sizeOf (undefined :: Word))
---         return AdvRecvDesc {rdBufAddr = addr, rdHeaderAddr = hdr}
---     poke ptr desc = do
---         poke (castPtr ptr :: Ptr Word64) (rdBufAddr desc)
---         pokeByteOff (castPtr ptr :: Ptr Word64) (sizeOf (undefined :: Word)) (rdHeaderAddr desc)
--- data TransmitDescriptor = AdvTransDesc
---     { tdBufAddr :: Word64
---     , tdCmdTypeLen :: Word32
---     , tdOlInfoStatus :: Word32
---     } deriving (Show)
--- instance Storable TransmitDescriptor where
---     sizeOf _ = sizeOf (0 :: Word) + sizeOf (0 :: Word32) + sizeOf (0 :: Word32)
---     alignment = sizeOf
---     peek ptr = do
---         addr <- peek (castPtr ptr :: Ptr Word64)
---         cmdTypeLen <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (undefined :: Word))
---         olInfoStatus <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (undefined :: Word) + sizeOf (undefined :: Word32))
---         return AdvTransDesc {tdBufAddr = addr, tdCmdTypeLen = cmdTypeLen, tdOlInfoStatus = olInfoStatus}
---     poke ptr desc = do
---         poke (castPtr ptr :: Ptr Word64) addr
---         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf addr) cmdTypeLen
---         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf addr + sizeOf cmdTypeLen) olInfoStatus
---       where
---         addr = tdBufAddr desc
---         cmdTypeLen = tdCmdTypeLen desc
---         olInfoStatus = tdOlInfoStatus desc
 data ReceiveDescriptor
     = ReadRx { rdPacketAddr :: Word64
              , rdHeaderAddr :: Word64 }
@@ -83,8 +61,8 @@ instance Storable ReceiveDescriptor where
     alignment = sizeOf
     peek ptr = do
         statusError <- peekByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64))
-        length <- peekByteOff (castPtr ptr :: Ptr Word16) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32))
-        return WritebackRx {rdStatusError = statusError, rdLength = length}
+        len <- peekByteOff (castPtr ptr :: Ptr Word16) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32))
+        return WritebackRx {rdStatusError = statusError, rdLength = len}
     poke ptr rdesc = do
         poke (castPtr ptr :: Ptr Word64) $ rdPacketAddr rdesc
         pokeByteOff (castPtr ptr :: Ptr Word64) (sizeOf (0 :: Word64)) $ rdHeaderAddr rdesc
@@ -105,40 +83,6 @@ instance Storable TransmitDescriptor where
         poke (castPtr ptr :: Ptr Word64) $ tdBufAddr tdesc
         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc
         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32)) $ tdOlInfoStatus tdesc
-
-data RxQueue = RxQueue
-    { rxqDescPtr :: Ptr ReceiveDescriptor
-    , rxqNumEntries :: Word
-    , rxqMemPool :: MemPool
-    , rxqRxIndex :: Int
-    } deriving (Show)
-
-instance Storable RxQueue where
-    sizeOf _ = sizeOf (undefined :: Ptr ReceiveDescriptor) + sizeOf (0 :: Int) + sizeOf (undefined :: MemPool) + sizeOf (0 :: Int)
-    alignment = sizeOf
-    peek ptr = do
-        desc <- peek (castPtr ptr :: Ptr (Ptr ReceiveDescriptor))
-        numEntries <- peekByteOff (castPtr ptr :: Ptr Int) (sizeOf desc)
-        memPool <- peekByteOff (castPtr ptr :: Ptr MemPool) (sizeOf desc + sizeOf numEntries)
-        rxIndex <- peekByteOff (castPtr ptr :: Ptr Int) (sizeOf desc + sizeOf numEntries + sizeOf memPool)
-        return RxQueue {rxqDescPtr = desc, rxqNumEntries = numEntries, rxqMemPool = memPool, rxqRxIndex = rxIndex}
-    poke ptr rxq = do
-        poke (castPtr ptr :: Ptr (Ptr ReceiveDescriptor)) desc
-        pokeByteOff (castPtr ptr :: Ptr Int) (sizeOf desc) numEntries
-        pokeByteOff (castPtr ptr :: Ptr MemPool) (sizeOf desc + sizeOf numEntries) memPool
-        pokeByteOff (castPtr ptr :: Ptr Int) (sizeOf desc + sizeOf numEntries + sizeOf memPool) rxIndex
-      where
-        desc = rxqDescPtr rxq
-        numEntries = rxqNumEntries rxq
-        memPool = rxqMemPool rxq
-        rxIndex = rxqRxIndex rxq
-
-data TxQueue = TxQueue
-    { txqDescPtr :: Ptr TransmitDescriptor
-    , txqNumEntries :: Word
-    , txqCleanIndex :: Int
-    , txqTxIndex :: Int
-    } deriving (Show)
 
 data LinkSpeed
     = NotReady
