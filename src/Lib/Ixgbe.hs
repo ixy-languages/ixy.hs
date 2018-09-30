@@ -1,6 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ConstraintKinds #-}
-
 module Lib.Ixgbe
     ( init
     , receive
@@ -87,22 +84,6 @@ init numRx numTx = do
             anRestart = 0x00001000
     handler = halt "Error during setup of the IXGBE device."
 
-readStats :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m Stats
-readStats = do
-    rxPackets <- R.get R.GPRC
-    txPackets <- R.get R.GPTC
-    rxBytesL <- R.get R.GORCL
-    rxBytesH <- (`shift` 32) <$> R.get R.GORCH
-    txBytesL <- R.get R.GOTCL
-    txBytesH <- (`shift` 32) <$> R.get R.GOTCH
-    return
-        Stats
-            { stRxPackets = fromIntegral rxPackets
-            , stTxPackets = fromIntegral txPackets
-            , stRxBytes = fromIntegral rxBytesL + fromIntegral rxBytesH
-            , stTxBytes = fromIntegral txBytesL + fromIntegral txBytesH
-            }
-
 initRx :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m, MonadState Dev m) => m ()
 initRx
     -- Disable RX while configuring.
@@ -140,7 +121,7 @@ initRx
         R.set (R.SRRCTL i) $ fromIntegral advRxDescEnable
         -- Enable dropping of packets if no rx descriptors are available.
         R.setMask (R.SRRCTL i) dropEnable
-        -- Setup descriptor ring.
+        -- Setup rx descriptor ring.
         let ringSize = numRxQueueEntries * fromIntegral (sizeOf (undefined :: ReceiveDescriptor))
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
@@ -177,6 +158,7 @@ startRxQueue id = do
     memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
     logLn $ "Allocating " <> show (rxqNumEntries queue) <> " packet buffers for RX queue " <> show id <> "."
     descPtrs <- forM (rxqDescPtrs queue) $ setupDescriptor memPool
+    logLn $ "Ring Buffer: " <> show descPtrs
     -- Enable queue and wait if necessary.
     R.setMask (R.RXDCTL id) rxdCtlEnable
     R.waitSet (R.RXDCTL id) rxdCtlEnable
@@ -259,6 +241,22 @@ startTxQueue id = do
     R.waitSet (R.TXDCTL id) txdCtlEnable
   where
     txdCtlEnable = 0x02000000
+
+readStats :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m Stats
+readStats = do
+    rxPackets <- R.get R.GPRC
+    txPackets <- R.get R.GPTC
+    rxBytesL <- R.get R.GORCL
+    rxBytesH <- (`shift` 32) <$> R.get R.GORCH
+    txBytesL <- R.get R.GOTCL
+    txBytesH <- (`shift` 32) <$> R.get R.GOTCH
+    return
+        Stats
+            { stRxPackets = fromIntegral rxPackets
+            , stTxPackets = fromIntegral txPackets
+            , stRxBytes = fromIntegral rxBytesL + fromIntegral rxBytesH
+            , stTxBytes = fromIntegral txBytesL + fromIntegral txBytesH
+            }
 
 setPromiscous :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
 setPromiscous = do
