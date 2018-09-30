@@ -39,7 +39,7 @@ instance Storable MemPool where
         top = mpTop memPool
 
 data PacketBuf = PacketBuf
-    { pbPhysical :: Word
+    { pbPhysical :: !Word
     , pbMemPoolIndex :: Int
     , pbBufSize :: Word
     , pbBuf :: ByteString

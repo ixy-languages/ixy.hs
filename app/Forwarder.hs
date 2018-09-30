@@ -27,7 +27,7 @@ main = do
 
 run :: App ()
 run = do
-    let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
+    let bdf = fromJust $ busDeviceFunction "0000:81:00.0"
     let dev = Device {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, _devRxQueues = [], _devTxQueues = []}
      in do dev' <- execStateT (init 1 1) dev
            forever $ readAndWait dev'
