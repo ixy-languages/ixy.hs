@@ -4,7 +4,7 @@ module Lib.Pci
     , mapResource
     ) where
 
-import Lib.Ixgbe.Types (Dev(..), DeviceState)
+import Lib.Ixgbe.Types (Device(..), DeviceState)
 import Lib.Log (Logger, halt, logLn)
 import Lib.Pci.Types (BusDeviceFunction(unBusDeviceFunction))
 import Lib.Prelude hiding (writeFile)

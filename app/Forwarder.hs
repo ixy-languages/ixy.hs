@@ -4,7 +4,7 @@ module Main where
 
 import Protolude
 
-import Lib (Dev(..), Env(..), busDeviceFunction, init, receive)
+import Lib (Device(..), Env(..), busDeviceFunction, init, receive)
 
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Data.Maybe (fromJust)
@@ -22,19 +22,18 @@ main = do
     tc <- newTimeCache ("[%Y-%m-%d %H:%M:%S]" :: TimeFormat)
     (logger, cleanup) <- newTimedFastLogger tc (LogStdout 4096)
     let env = Env {envLogger = (logger, cleanup)}
-    -- runStateT (runReaderT (runApp run) env) dev
     runReaderT (runApp run) env
     cleanup
 
 run :: App ()
 run = do
     let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
-    let dev = Dev {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, devRxQueues = [], devTxQueues = []}
+    let dev = Device {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, _devRxQueues = [], _devTxQueues = []}
      in do dev' <- execStateT (init 1 1) dev
            forever $ readAndWait dev'
   where
     readAndWait dev = do
-        packetBufs <- evalStateT (receive 0) dev
+        packetBufs <- evalStateT receive dev
         liftIO $ do
             putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
             usleep 1000000

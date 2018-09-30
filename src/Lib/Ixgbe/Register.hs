@@ -10,7 +10,7 @@ module Lib.Ixgbe.Register
     , waitClear
     ) where
 
-import Lib.Ixgbe.Types (Dev(..), DeviceState)
+import Lib.Ixgbe.Types (Device(..), DeviceState)
 import Lib.Log (Logger, logLn)
 import Lib.Prelude hiding (get, mask)
 

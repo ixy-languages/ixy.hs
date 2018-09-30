@@ -1,54 +1,17 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TemplateHaskell #-}
 
-module Lib.Ixgbe.Types
-    ( Dev(..)
-    , DeviceState
-    , Stats(..)
-    , ReceiveDescriptor(..)
-    , TransmitDescriptor(..)
-    , RxQueue(..)
-    , TxQueue(..)
-    , LinkSpeed(..)
-    ) where
+module Lib.Ixgbe.Types where
 
 import Lib.Memory.Types (MemPool(..), PacketBuf(..))
 import Lib.Pci.Types (BusDeviceFunction)
 import Lib.Prelude
 
+import Control.Lens
 import Data.CircularList (CList)
 import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable, alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
-
-type DeviceState = MonadState Dev
-
-data Dev = Dev
-    { devBase :: Ptr Word8
-    , devBdf :: BusDeviceFunction
-    , devNumRx :: Word
-    , devNumTx :: Word
-    , devRxQueues :: [RxQueue]
-    , devTxQueues :: [TxQueue]
-    } deriving (Show)
-
-data RxQueue = RxQueue
-    { rxqDescPtrs :: CList (Ptr ReceiveDescriptor, Ptr PacketBuf)
-    , rxqNumEntries :: Word
-    , rxqMemPool :: MemPool
-    } deriving (Show)
-
-data TxQueue = TxQueue
-    { txqDescPtrs :: CList (Ptr TransmitDescriptor, Ptr PacketBuf)
-    , txqNumEntries :: Word
-    , txqCleanIndex :: Int
-    } deriving (Show)
-
-data Stats = Stats
-    { stRxPackets :: Word
-    , stTxPackets :: Word
-    , stRxBytes :: Word
-    , stTxBytes :: Word
-    }
 
 data ReceiveDescriptor
     = ReadRx { rdPacketAddr :: Word64
@@ -84,8 +47,45 @@ instance Storable TransmitDescriptor where
         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc
         pokeByteOff (castPtr ptr :: Ptr Word32) (sizeOf (0 :: Word64) + sizeOf (0 :: Word32)) $ tdOlInfoStatus tdesc
 
+data RxQueue = RxQueue
+    { _rxqDescriptors :: CList (Ptr ReceiveDescriptor, Ptr PacketBuf)
+    , _rxqMemPool :: MemPool
+    , rxqNumEntries :: Word
+    , rxqIndex :: Int
+    } deriving (Show)
+
+makeLenses ''RxQueue
+
+data TxQueue = TxQueue
+    { _txqDescriptors :: CList (Ptr TransmitDescriptor, Ptr PacketBuf)
+    , txqNumEntries :: Word
+    , txqCleanIndex :: Int
+    } deriving (Show)
+
+makeLenses ''TxQueue
+
+type DeviceState = MonadState Device
+
+data Device = Device
+    { devBase :: Ptr Word32
+    , devBdf :: BusDeviceFunction
+    , devNumRx :: Word
+    , devNumTx :: Word
+    , _devRxQueues :: [RxQueue]
+    , _devTxQueues :: [TxQueue]
+    } deriving (Show)
+
+makeLenses ''Device
+
+data Stats = Stats
+    { stRxPackets :: Word
+    , stTxPackets :: Word
+    , stRxBytes :: Word
+    , stTxBytes :: Word
+    } deriving (Show)
+
 data LinkSpeed
-    = NotReady
+    = NoSpeed
     | Speed100M
     | Speed1G
     | Speed10G

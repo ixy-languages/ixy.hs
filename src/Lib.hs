@@ -11,13 +11,13 @@ module Lib
     , receive
     , Env(..)
     , PacketBuf(..)
-    , Dev(..)
+    , Device(..)
     , BusDeviceFunction(..)
     , busDeviceFunction
     ) where
 
 import Lib.Core (Env(..))
 import Lib.Ixgbe (init, receive)
-import Lib.Ixgbe.Types (Dev(..))
+import Lib.Ixgbe.Types (Device(..))
 import Lib.Memory.Types (PacketBuf(..))
 import Lib.Pci.Types (BusDeviceFunction(..), busDeviceFunction)
