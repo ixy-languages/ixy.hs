@@ -31,15 +31,10 @@ run = do
     let bdf = fromJust $ busDeviceFunction "0000:02:00.0"
     let dev = Dev {devBase = nullPtr, devBdf = bdf, devNumTx = 0, devNumRx = 0, devRxQueues = [], devTxQueues = []}
      in do dev' <- execStateT (init 1 1) dev
-           liftIO $ usleep 10000000
-           -- readAndWait dev'
-           packetBufs <- evalStateT (receive 0) dev'
-           liftIO $ putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
-           return ()
-  -- where
-  --   readAndWait dev = do
-        -- packetBufs <- evalStateT (receive 0) dev
-  --       liftIO $ do
-            -- putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
-  --           usleep 1000000
-  --       readAndWait
+           forever $ readAndWait dev'
+  where
+    readAndWait dev = do
+        packetBufs <- evalStateT (receive 0) dev
+        liftIO $ do
+            putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
+            usleep 1000000
