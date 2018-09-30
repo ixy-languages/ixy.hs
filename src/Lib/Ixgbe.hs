@@ -340,7 +340,7 @@ receive queueId = do
         let desc = ReadRx {rdPacketAddr = fromIntegral $ pbPhysical pb, rdHeaderAddr = 0}
          in liftIO $ poke descPtr desc
     isDone s = s .&. 0x01 /= 0
-    isEOP s = s .&. 0x02 == 0
+    isEOP s = s .&. 0x02 /= 0
 
 memSet :: (MonadIO m) => Ptr Word -> Int -> Word8 -> m ()
 memSet ptr size value = liftIO $ forM_ [0 .. (size - 1)] (\i -> pokeByteOff ptr i value)
