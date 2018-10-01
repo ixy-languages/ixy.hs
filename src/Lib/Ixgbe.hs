@@ -9,7 +9,7 @@ module Lib.Ixgbe
 import qualified Lib.Ixgbe.Register as R
 import Lib.Ixgbe.Types
 import Lib.Log (Logger(..), halt, logLn)
-import Lib.Memory (allocateDMA, allocateMemPool, allocatePktBuf, allocatePktBufBatch)
+import Lib.Memory (allocateDMA, allocateMemPool, allocatePktBufBatch)
 import Lib.Memory.Types (MemPool(..), PacketBuf(..), Translation(..))
 import Lib.Pci (mapResource)
 import Lib.Pci.Types (BusDeviceFunction(..))
@@ -19,11 +19,10 @@ import Control.Lens hiding (element)
 import Control.Lens.At (ix)
 import Control.Monad.Catch (MonadCatch, catchAll)
 import Data.Bits ((.&.), (.|.), complement)
-import Data.CircularList (focus, fromList, rotR)
+import Data.CircularList (fromList)
 import Data.List ((!!))
-import Data.Maybe (fromJust)
 import Foreign.Ptr (Ptr, castPtr, nullPtr, plusPtr)
-import Foreign.Storable (peek, peekByteOff, poke, pokeByteOff, sizeOf)
+import Foreign.Storable (peek, poke, pokeByteOff, sizeOf)
 import System.IO.Error (userError)
 import System.Posix.Unistd (usleep)
 
@@ -40,11 +39,17 @@ numTxQueueEntries :: Word
 numTxQueueEntries = 512
 
 init :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Word -> Word -> m ()
-init numRx numTx = do
-    dev <- get
-    ptr <- mapResource "resource0"
-    put dev {devBase = ptr, devNumTx = numTx, devNumRx = numRx, _devRxQueues = [], _devTxQueues = []}
-    catchAll resetAndInit handler
+init numRx numTx =
+    if numRx > 0 && numRx <= 128
+        then if numTx > 0 && numTx <= 128
+                 then do
+                     dev <- get
+                     ptr <- mapResource "resource0"
+                     put dev {devBase = ptr, devNumTx = numTx, devNumRx = numRx, _devRxQueues = [], _devTxQueues = []}
+                     catchAll resetAndInit handler
+                 else halt "Error during the initialization of the IXGBE driver." $
+                      userError "Number of Tx queues must be between 1 and 128."
+        else halt "Error during the initialization of the IXGBE driver." $ userError "Number of Rx queues must be between 1 and 128."
   where
     resetAndInit :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
     resetAndInit = do
@@ -78,7 +83,7 @@ init numRx numTx = do
         initLink = R.setMask R.AUTOC anRestart
           where
             anRestart = 0x00001000
-    handler = halt "Error during setup of the IXGBE device."
+    handler = halt "Error during the initialization of the IXGBE device."
 
 readStats :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m Stats
 readStats = do
@@ -133,7 +138,7 @@ initRx
         -- Enable dropping of packets if no rx descriptors are available.
         R.setMask (R.SRRCTL i) dropEnable
         -- Setup descriptor ring.
-        let ringSize = numRxQueueEntries * fromIntegral (sizeOf (undefined :: ReceiveDescriptor))
+        let ringSize = numRxQueueEntries * fromIntegral (sizeOf ReadTx {tdBufAddr = 0, tdCmdTypeLen = 0, tdOlInfoStatus = 0})
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
         R.set (R.RDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
@@ -145,17 +150,19 @@ initRx
         R.set (R.RDT i) 0
         -- Construct Rx queue.
         let base = castPtr (trVirtual t) :: Ptr ReceiveDescriptor
+        --TODO: This can be simplified to just include the tuple in the list comprehension.
         let ptrs =
                 zip
-                    [ base `plusPtr` fromIntegral (i * fromIntegral (sizeOf (undefined :: ReceiveDescriptor)))
-                    | i <- [0 .. (numRxQueueEntries - 1)]
+                    [ base `plusPtr` fromIntegral (j * fromIntegral (sizeOf ReadRx {rdPacketAddr = 0, rdHeaderAddr = 0}))
+                    | j <- [0 .. (numRxQueueEntries - 1)]
                     ] $
                 repeat nullPtr
         return
             RxQueue
-                { _rxqDescriptors = fromList $ ptrs
+                { _rxqDescriptors = fromList ptrs
                 , _rxqMemPool = MemPool {mpBase = nullPtr, mpBufSize = 0, mpTop = 0}
                 , rxqNumEntries = numRxQueueEntries
+                , rxqIndex = 0
                 }
       where
         dropEnable = 0x10000000
@@ -174,7 +181,7 @@ startRxQueue id = do
     -- Setup the descriptors.
     let ptrs = zip (toList (map fst (queue ^. rxqDescriptors))) pbPtrs
     forM_ ptrs setupDescriptor
-    put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix id .~ (queue & rxqDescriptors .~ (fromList ptrs)))
+    put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix id .~ (queue & rxqDescriptors .~ fromList ptrs))
     -- Enable the rx queue and wait.
     R.setMask (R.RXDCTL id) rxdCtlEnable
     R.waitSet (R.RXDCTL id) rxdCtlEnable
@@ -213,7 +220,7 @@ initTx
     setupQueue i = do
         logLn $ "Initializing TX queue " <> show i <> "."
         -- Setup descriptor ring.
-        let ringSize = numTxQueueEntries * fromIntegral (sizeOf (undefined :: TransmitDescriptor))
+        let ringSize = numTxQueueEntries * fromIntegral (sizeOf ReadTx {tdBufAddr = 0, tdCmdTypeLen = 0, tdOlInfoStatus = 0})
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
         R.set (R.TDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
@@ -225,11 +232,11 @@ initTx
         let base = castPtr (trVirtual t) :: Ptr TransmitDescriptor
         let ptrs =
                 zip
-                    [ base `plusPtr` fromIntegral (i * fromIntegral (sizeOf (undefined :: ReceiveDescriptor)))
-                    | i <- [0 .. (numRxQueueEntries - 1)]
+                    [ base `plusPtr` fromIntegral (j * fromIntegral (sizeOf ReadRx {rdPacketAddr = 0, rdHeaderAddr = 0}))
+                    | j <- [0 .. (numRxQueueEntries - 1)]
                     ] $
                 repeat nullPtr
-        return TxQueue {txqNumEntries = numTxQueueEntries, txqCleanIndex = 0, _txqDescriptors = fromList $ ptrs}
+        return TxQueue {txqNumEntries = numTxQueueEntries, txqCleanIndex = 0, _txqDescriptors = fromList ptrs}
       where
         wbMagic = (.|. 0x40824) . (.&. complement 0x3F3F3F)
 

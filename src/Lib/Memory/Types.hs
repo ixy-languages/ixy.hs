@@ -7,7 +7,7 @@ module Lib.Memory.Types
 import Lib.Prelude
 
 import qualified Data.ByteString as B
-import Foreign.Ptr (castPtr)
+import Foreign.Ptr (castPtr, nullPtr)
 import Foreign.Storable (Storable, alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
 
 data Translation = Translation
@@ -22,7 +22,7 @@ data MemPool = MemPool
     } deriving (Show)
 
 instance Storable MemPool where
-    sizeOf _ = sizeOf (undefined :: Ptr Word) + sizeOf (undefined :: Word) + sizeOf (undefined :: Int)
+    sizeOf _ = sizeOf (nullPtr :: Ptr Word) + sizeOf (0 :: Word) + sizeOf (0 :: Int)
     alignment = sizeOf
     peek ptr = do
         base <- peek (castPtr ptr :: Ptr (Ptr Word))
@@ -59,7 +59,7 @@ instance Storable PacketBuf where
         bufWord <- mapM (peekWord ptr (sizeOf physAddr + sizeOf mpIndex + sizeOf bufSize)) indices
         return PacketBuf {pbPhysical = physAddr, pbMemPoolIndex = mpIndex, pbBufSize = fromIntegral bufSize, pbBuf = B.pack bufWord}
       where
-        peekWord ptr offset i = peekByteOff (castPtr ptr :: Ptr Word8) (offset + i * sizeOf (0 :: Word8))
+        peekWord wPtr offset i = peekByteOff (castPtr wPtr :: Ptr Word8) (offset + i * sizeOf (0 :: Word8))
     poke ptr packetBuf = do
         poke (castPtr ptr :: Ptr Word) phys
         pokeByteOff (castPtr ptr :: Ptr Int) (sizeOf phys) index
@@ -70,4 +70,4 @@ instance Storable PacketBuf where
         index = pbMemPoolIndex packetBuf
         size = pbBufSize packetBuf
         buf = B.unpack $ pbBuf packetBuf
-        pokeWord ptr offset (i, w) = pokeByteOff ptr (offset + i * sizeOf w) w
+        pokeWord wPtr offset (i, w) = pokeByteOff wPtr (offset + i * sizeOf w) w

@@ -66,7 +66,7 @@ translate virt = handleIOError handler (liftIO $ PathIO.withBinaryFile path Path
       where
         bsToWord = B.foldl' (\x y -> x * 256 + fromIntegral y) 0
         calculateAddress addr =
-            (addr .&. 0x7fffffffffffff) * (fromIntegral sysconfPageSize + fromIntegral wordPtr) `mod` fromIntegral sysconfPageSize
+            (addr .&. 0x7fffffffffffff) * fromIntegral sysconfPageSize + fromIntegral wordPtr `mod` fromIntegral sysconfPageSize
     handler = halt "Error occured during translation of a virtual address."
 
 -- TODO: Currently this whole thing will only work with a bufSize of 2048, because PackeBuf assumes

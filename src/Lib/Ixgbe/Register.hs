@@ -11,12 +11,13 @@ module Lib.Ixgbe.Register
     ) where
 
 import Lib.Ixgbe.Types (Device(..), DeviceState)
-import Lib.Log (Logger, logLn)
+import Lib.Log (Logger, halt, logLn)
 import Lib.Prelude hiding (get, mask)
 
 import qualified Control.Monad.State as State
 import Data.Bits ((.&.), (.|.), complement)
 import Foreign.Storable (peekByteOff, pokeByteOff)
+import System.IO.Error (userError)
 import System.Posix.Unistd (usleep)
 
 data Register
@@ -55,6 +56,7 @@ data Register
     | TDT Int
     | LINKS
     | RXDCTL Int
+    | UNDEFINED
     deriving (Show)
 
 instance Enum Register where
@@ -113,14 +115,18 @@ instance Enum Register where
     fromEnum (RXDCTL i)
         | i < 64 = 0x01028 + (i * 0x40)
     fromEnum (RXDCTL i) = 0x0D028 + ((i - 64) * 0x40)
+    fromEnum UNDEFINED = -1
+    toEnum _ = UNDEFINED
 
-set :: (MonadIO m, DeviceState m) => Register -> Word32 -> m ()
+set :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
+set UNDEFINED _ = halt "Logical Error" $ userError "Not supposed to convert from Int to Register, or use UNDEFINED directly."
 set reg value = do
     dev <- State.get
     let ptr = devBase dev
      in liftIO $ pokeByteOff ptr (fromEnum reg) value
 
-get :: (MonadIO m, DeviceState m) => Register -> m Word32
+get :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> m Word32
+get UNDEFINED = halt "Logical Error" $ userError "Not supposed to convert from Int to Register, or use UNDEFINED directly."
 get reg = do
     dev <- State.get
     let ptr = devBase dev
@@ -136,7 +142,7 @@ waitSet reg mask = do
     logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to be set."
     waitUntil reg mask (== mask)
 
-waitUntil :: (MonadIO m, DeviceState m) => Register -> Word32 -> (Word32 -> Bool) -> m ()
+waitUntil :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> (Word32 -> Bool) -> m ()
 waitUntil reg mask f = do
     current <- get reg
     if f $ current .&. mask
@@ -145,12 +151,12 @@ waitUntil reg mask f = do
             liftIO $ usleep 10000
             waitUntil reg mask f
 
-setMask :: (MonadIO m, DeviceState m) => Register -> Word32 -> m ()
+setMask :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
 setMask reg mask = do
     current <- get reg
     set reg (current .|. mask)
 
-clearMask :: (MonadIO m, DeviceState m) => Register -> Word32 -> m ()
+clearMask :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
 clearMask reg mask = do
     current <- get reg
     set reg (current .&. complement mask)
