@@ -94,17 +94,10 @@ allocateMemPool numEntries entrySize =
                     MemPool
                         { mpBase = castPtr (trVirtual t)
                         , mpBufSize = 2048
-                        , mpTop = fromIntegral numEntries
+                        , mpTop = fromIntegral (numEntries - 1)
                         , mpFreeBufs = [0 .. (numEntries - 1)]
                         }
-             in do forM_
-                       [ ( mpBase m `plusPtr`
-                           fromIntegral
-                               (i * fromIntegral (sizeOf (PacketBuf {pbPhysical = 0, pbMemPoolIndex = 0, pbBufSize = 0, pbBuf = B.empty})))
-                         , i)
-                       | i <- mpFreeBufs m
-                       ]
-                       setupBuf
+             in do forM_ [(mpBase m `plusPtr` fromIntegral (mpBufSize m), i) | i <- mpFreeBufs m] setupBuf
                    return m
   where
     setupBuf (ptr, index) = do
@@ -119,12 +112,10 @@ allocatePktBufBatch numBufs = do
     ptrs <- forM [0 .. (n - 1)] (getBuf memPool)
     put memPool {mpTop = mpTop memPool - n}
     return (ptrs, n)
-    -- NOTE: Now that I think about it, is MemPool a Monoid?
   where
     getBuf memPool index =
         let entryId = mpFreeBufs memPool !! (mpTop memPool - index)
-         in return $
-            mpBase memPool `plusPtr` (entryId * sizeOf (PacketBuf {pbPhysical = 0, pbMemPoolIndex = 0, pbBufSize = 0, pbBuf = B.empty}))
+         in return $ mpBase memPool `plusPtr` (entryId * fromIntegral (mpBufSize memPool))
 
 allocatePktBuf :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, MonadState MemPool m) => m (Ptr PacketBuf, Int)
 allocatePktBuf = do
