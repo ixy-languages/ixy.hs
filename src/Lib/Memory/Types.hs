@@ -2,6 +2,7 @@ module Lib.Memory.Types
     ( Translation(..)
     , MemPool(..)
     , PacketBuf(..)
+    , bufAddr
     ) where
 
 import Lib.Prelude
@@ -55,3 +56,6 @@ instance Storable PacketBuf where
         size = pbBufSize packetBuf
         buf = B.unpack $ pbBuf packetBuf
         pokeWord wPtr offset (i, w) = pokeByteOff wPtr (offset + i * sizeOf w) w
+
+bufAddr :: PacketBuf -> Word64
+bufAddr pb = fromIntegral $ pbPhysical pb + fromIntegral (sizeOf (0 :: Int)) + fromIntegral (sizeOf (0 :: Word))

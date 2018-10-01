@@ -51,7 +51,6 @@ data RxQueue = RxQueue
     { _rxqDescriptors :: CList (Ptr ReceiveDescriptor, Ptr PacketBuf)
     , _rxqMemPool :: MemPool
     , rxqNumEntries :: Word
-    , rxqIndex :: Int
     } deriving (Show)
 
 makeLenses ''RxQueue
