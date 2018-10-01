@@ -160,7 +160,7 @@ initRx
         return
             RxQueue
                 { _rxqDescriptors = fromList ptrs
-                , _rxqMemPool = MemPool {mpBase = nullPtr, mpBufSize = 0, mpTop = 0}
+                , _rxqMemPool = MemPool {mpBase = nullPtr, mpBufSize = 0, mpTop = 0, mpFreeBufs = []}
                 , rxqNumEntries = numRxQueueEntries
                 , rxqIndex = 0
                 }
@@ -171,7 +171,7 @@ startRxQueue :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceS
 startRxQueue id = do
     logLn $ "Starting RX queue " <> show id <> "."
     dev <- get
-    memPool <- allocateMemPool (numRxQueueEntries + numTxQueueEntries) 2048
+    memPool <- allocateMemPool (fromIntegral (numRxQueueEntries + numTxQueueEntries)) 2048
     let queue = (dev ^. devRxQueues) !! id
     logLn $ "Allocating " <> show (rxqNumEntries queue) <> " packet buffers for RX queue " <> show id <> "."
     ((pbPtrs, _), memPool') <- runStateT (allocatePktBufBatch $ fromIntegral $ rxqNumEntries queue) memPool

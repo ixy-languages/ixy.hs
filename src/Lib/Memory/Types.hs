@@ -7,7 +7,7 @@ module Lib.Memory.Types
 import Lib.Prelude
 
 import qualified Data.ByteString as B
-import Foreign.Ptr (castPtr, nullPtr)
+import Foreign.Ptr (castPtr)
 import Foreign.Storable (Storable, alignment, peek, peekByteOff, poke, pokeByteOff, sizeOf)
 
 data Translation = Translation
@@ -16,27 +16,11 @@ data Translation = Translation
     }
 
 data MemPool = MemPool
-    { mpBase :: Ptr Word
+    { mpBase :: Ptr PacketBuf
     , mpBufSize :: Word
     , mpTop :: Int
+    , mpFreeBufs :: [Int]
     } deriving (Show)
-
-instance Storable MemPool where
-    sizeOf _ = sizeOf (nullPtr :: Ptr Word) + sizeOf (0 :: Word) + sizeOf (0 :: Int)
-    alignment = sizeOf
-    peek ptr = do
-        base <- peek (castPtr ptr :: Ptr (Ptr Word))
-        bufSize <- peekByteOff (castPtr ptr :: Ptr Word) (sizeOf base)
-        top <- peekByteOff (castPtr ptr :: Ptr Int) (sizeOf base + sizeOf bufSize)
-        return MemPool {mpBase = base, mpBufSize = bufSize, mpTop = top}
-    poke ptr memPool = do
-        poke (castPtr ptr :: Ptr (Ptr Word)) base
-        pokeByteOff (castPtr ptr :: Ptr Word) (sizeOf base) bufSize
-        pokeByteOff (castPtr ptr :: Ptr Int) (sizeOf base + sizeOf bufSize) top
-      where
-        base = mpBase memPool
-        bufSize = mpBufSize memPool
-        top = mpTop memPool
 
 data PacketBuf = PacketBuf
     { pbPhysical :: !Word
