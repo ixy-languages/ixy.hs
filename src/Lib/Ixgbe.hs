@@ -136,7 +136,7 @@ initRx
         -- Enable dropping of packets if no rx descriptors are available.
         R.setMask (R.SRRCTL i) dropEnable
         -- Setup descriptor ring.
-        let ringSize = numRxQueueEntries * fromIntegral (sizeOf ReadTx {tdBufAddr = 0, tdCmdTypeLen = 0, tdOlInfoStatus = 0})
+        let ringSize = numRxQueueEntries * fromIntegral (sizeOf ReadRx {rdPacketAddr = 0, rdHeaderAddr = 0})
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
         R.set (R.RDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
@@ -157,6 +157,7 @@ initRx
                 { _rxqDescriptors = fromList ptrs
                 , _rxqMemPool = MemPool {mpBase = nullPtr, mpBufSize = 0, mpTop = 0, mpFreeBufs = []}
                 , rxqNumEntries = numRxQueueEntries
+                , rxqIndex = 0
                 }
       where
         dropEnable = 0x10000000
@@ -293,25 +294,29 @@ linkSpeed = do
     links10G = 0x30000000
 
 receive :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m [PacketBuf]
-receive queueId = do
-    dev <- get
-    let queue = (dev ^. devRxQueues) !! queueId
-    let (descPtr, pbPtr) = fromJust $ focus (queue ^. rxqDescriptors)
-    descriptor <- liftIO $ peek descPtr
-    let status = rdStatusError descriptor
-     in if isDone status
-            then if not $ isEOP status
-                     then halt "End of packet in rx descriptor was not set." $ userError "Multi-segment packets are not supported."
-                     else do
-                         packetBuf <- readPacket descriptor pbPtr
-                         resetDescriptor descPtr
-                         put $
-                             dev &
-                             devRxQueues .~
-                             ((dev ^. devRxQueues) & ix queueId .~ (queue & rxqDescriptors .~ rotR (queue ^. rxqDescriptors)))
-                         (packetBuf :) <$> receive queueId
-            else return []
+receive id = inner id 0
   where
+    inner queueId passes = do
+        dev <- get
+        let queue = (dev ^. devRxQueues) !! queueId
+        let (descPtr, pbPtr) = fromJust $ focus (queue ^. rxqDescriptors)
+        descriptor <- liftIO $ peek descPtr
+        let status = rdStatusError descriptor
+         in if isDone status
+                then if not $ isEOP status
+                         then halt "End of packet in rx descriptor was not set." $ userError "Multi-segment packets are not supported."
+                         else do
+                             packetBuf <- readPacket descriptor pbPtr
+                             resetDescriptor descPtr
+                             put $
+                                 dev &
+                                 devRxQueues .~
+                                 ((dev ^. devRxQueues) & ix queueId .~ (queue & rxqDescriptors .~ rotR (queue ^. rxqDescriptors)))
+                             (packetBuf :) <$> inner queueId (passes + 1)
+                else do
+                    put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix queueId .~ queue {rxqIndex = rxqIndex queue + passes})
+                    R.set (R.RDT queueId) $ fromIntegral (rxqIndex queue + passes)
+                    return []
     isDone s = s .&. 0x01 /= 0
     isEOP s = s .&. 0x02 /= 0
     readPacket desc pbPtr = do
@@ -319,9 +324,9 @@ receive queueId = do
         return pb {pbBufSize = fromIntegral $ rdLength desc}
     resetDescriptor descPtr = do
         dev <- get
-        let queue = (dev ^. devRxQueues) !! queueId
+        let queue = (dev ^. devRxQueues) !! id
         ((pbPtr, _), memPool) <- runStateT allocatePktBuf (queue ^. rxqMemPool)
-        put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix queueId .~ (queue & rxqMemPool .~ memPool))
+        put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix id .~ (queue & rxqMemPool .~ memPool))
         pb <- liftIO $ peek pbPtr
         let desc = ReadRx {rdPacketAddr = bufAddr pb, rdHeaderAddr = 0}
          in liftIO $ poke descPtr desc
