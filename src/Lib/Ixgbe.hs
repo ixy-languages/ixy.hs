@@ -67,6 +67,7 @@ init numRx numTx =
         forM_ [0 .. (fromIntegral (devNumTx dev) - 1)] startTxQueue
         setPromiscous
         waitForLink 1000
+        R.dumpRegisters
       where
         autoReadDone = 0x00000200
         dmaInitCycleDone = 0x00000008

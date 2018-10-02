@@ -8,16 +8,17 @@ module Lib.Ixgbe.Register
     , setMask
     , get
     , waitClear
+    , dumpRegisters
     ) where
 
 import Lib.Ixgbe.Types (Device(..), DeviceState)
-import Lib.Log (Logger, halt, logLn)
+import Lib.Log (Logger, logLn)
+import Lib.Pci.Types (unBusDeviceFunction)
 import Lib.Prelude hiding (get, mask)
 
 import qualified Control.Monad.State as State
 import Data.Bits ((.&.), (.|.), complement)
 import Foreign.Storable (peekByteOff, pokeByteOff)
-import System.IO.Error (userError)
 import System.Posix.Unistd (usleep)
 
 data Register
@@ -57,19 +58,19 @@ data Register
     | LINKS
     | RXDCTL Int
     | UNDEFINED
-    deriving (Show)
+    deriving (Eq, Show)
 
 instance Enum Register where
     fromEnum EIMC = 0x00888
     fromEnum CTRL = 0x00000
     fromEnum AUTOC = 0x042A0
-    fromEnum RXCTRL = 0x02F00
+    fromEnum RXCTRL = 0x03000
     fromEnum (RXPBSIZE i) = 0x03C00 + (i * 4)
     fromEnum HLREG0 = 0x04240
     fromEnum RDRXCTL = 0x02F00
     fromEnum FCTRL = 0x05080
-    fromEnum (SRRCTL i)
-        | i <= 15 = 0x02100 + (i * 4)
+    -- fromEnum (SRRCTL i)
+    --     | i <= 15 = 0x02100 + (i * 4)
     fromEnum (SRRCTL i)
         | i < 64 = 0x01014 + (i * 0x40)
     fromEnum (SRRCTL i) = 0x0D014 + ((i - 64) * 0x40)
@@ -89,8 +90,8 @@ instance Enum Register where
         | i < 64 = 0x1018 + (i * 0x40)
     fromEnum (RDT i) = 0x0D018 + ((i - 64) * 0x40)
     fromEnum CTRL_EXT = 0x00018
-    fromEnum (DCA_RXCTRL i)
-        | i <= 15 = 0x02200 + (i * 4)
+    -- fromEnum (DCA_RXCTRL i)
+    --     | i <= 15 = 0x02200 + (i * 4)
     fromEnum (DCA_RXCTRL i)
         | i < 64 = 0x0100C + (i * 0x40)
     fromEnum (DCA_RXCTRL i) = 0x0D00C + ((i - 64) * 0x40)
@@ -115,18 +116,80 @@ instance Enum Register where
     fromEnum (RXDCTL i)
         | i < 64 = 0x01028 + (i * 0x40)
     fromEnum (RXDCTL i) = 0x0D028 + ((i - 64) * 0x40)
-    fromEnum UNDEFINED = -1
+    toEnum 0x00888 = EIMC
+    toEnum 0x00000 = CTRL
+    toEnum 0x042A0 = AUTOC
+    toEnum 0x02F00 = RDRXCTL
+    toEnum v
+        | v >= 0x03C00 && v <= 0x03C1C = RXPBSIZE ((v - 0x03C00) `quot` 4)
+    toEnum v
+        | v >= 0x0CC00 && v <= 0xCC1C = TXPBSIZE ((v - 0x0CC00) `quot` 4)
+    toEnum 0x04240 = HLREG0
+    toEnum 0x03000 = RXCTRL
+    toEnum 0x05080 = FCTRL
+    toEnum v
+        | v >= 0x01000 && v <= 0x01FC0 && v `mod` 0x40 == 0 = RDBAL ((v - 0x01000) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D000 && v <= 0x0DFC0 && v `mod` 0x40 == 0 = RDBAL (((v - 0x0D000) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01004 && v <= 0x01FC4 && v `mod` 0x40 == 4 = RDBAH ((v - 0x01004) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D004 && v <= 0x0DFC4 && v `mod` 0x40 == 4 = RDBAH (((v - 0x0D004) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01008 && v <= 0x01FC8 && v `mod` 0x40 == 8 = RDLEN ((v - 0x01008) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D008 && v <= 0x0DFC8 && v `mod` 0x40 == 8 = RDLEN (((v - 0x0D008) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01010 && v <= 0x1FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01014) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D010 && v <= 0xDFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D014) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01014 && v <= 0x01FD4 && v `mod` 0x40 == 0x14 = SRRCTL ((v - 0x01014) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D014 && v <= 0x0DF4 && v `mod` 0x40 == 0x14 = SRRCTL (((v - 0x0D014) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01018 && v <= 0x1FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D018 && v <= 0xDFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x01018) `quot` 0x40) + 64)
+    toEnum 0x00018 = CTRL_EXT
+    toEnum v
+        | v >= 0x0100C && v <= 0x1FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D00C && v <= 0xDFCC && v `mod` 0x40 == 0xC = DCA_RXCTRL (((v - 0x0D00C) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01028 && v <= 0x1FE8 && v `mod` 0x40 == 0x28 = RXDCTL ((v - 0x01028) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D028 && v <= 0xDFE8 && v `mod` 0x40 == 0x28 = RXDCTL (((v - 0x0D028) `quot` 0x40) + 64)
+    toEnum 0x08100 = DTXMXSZRQ
+    toEnum 0x04900 = RTTDCS
+    toEnum 0x04074 = GPRC
+    toEnum 0x04080 = GPTC
+    toEnum 0x04088 = GORCL
+    toEnum 0x0408C = GORCH
+    toEnum 0x04A80 = DMATXCTL
+    toEnum 0x10010 = EEC
+    toEnum 0x042A4 = LINKS
+    toEnum v
+        | v >= 0x06000 && v <= 0x07FC0 && v `mod` 0x40 == 0 = TDBAL ((v - 0x06000) `quot` 0x40)
+    toEnum v
+        | v >= 0x06004 && v <= 0x07FC4 && v `mod` 0x40 == 4 = TDBAH ((v - 0x06004) `quot` 0x40)
+    toEnum v
+        | v >= 0x06008 && v <= 0x07FC8 && v `mod` 0x40 == 8 = TDLEN ((v - 0x06008) `quot` 0x40)
+    toEnum v
+        | v >= 0x06010 && v <= 0x07FD0 && v `mod` 0x40 == 0x10 = TDH ((v - 0x06010) `quot` 0x40)
+    toEnum v
+        | v >= 0x06018 && v <= 0x07FD8 && v `mod` 0x40 == 0x18 = TDT ((v - 0x06018) `quot` 0x40)
+    toEnum v
+        | v >= 0x06028 && v <= 0x07FE8 && v `mod` 0x40 == 0x28 = TXDCTL ((v - 0x06028) `quot` 0x40)
     toEnum _ = UNDEFINED
 
 set :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
-set UNDEFINED _ = halt "Logical Error" $ userError "Not supposed to convert from Int to Register, or use UNDEFINED directly."
 set reg value = do
     dev <- State.get
     let ptr = devBase dev
      in liftIO $ pokeByteOff ptr (fromEnum reg) value
 
 get :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> m Word32
-get UNDEFINED = halt "Logical Error" $ userError "Not supposed to convert from Int to Register, or use UNDEFINED directly."
 get reg = do
     dev <- State.get
     let ptr = devBase dev
@@ -160,3 +223,16 @@ clearMask :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Regist
 clearMask reg mask = do
     current <- get reg
     set reg (current .&. complement mask)
+
+dumpRegisters :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
+dumpRegisters = do
+    dev <- State.get
+    let bdf = unBusDeviceFunction $ devBdf dev
+    logLn $ "Dumping all registers of device " <> show bdf <> ":"
+    forM_
+        [0,0x40 .. 0x0E000]
+        (\addr ->
+             let register = toEnum addr
+              in when (register /= UNDEFINED) $ do
+                     current <- get register
+                     logLn $ show register <> ": " <> show current)
