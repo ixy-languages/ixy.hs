@@ -1,6 +1,7 @@
 module Lib.Ixgbe
     ( init
     , receive
+    , readStats
     ) where
 
 import qualified Lib.Ixgbe.Register as R
@@ -221,7 +222,7 @@ initTx
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
         R.set (R.TDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
-        R.set (R.TDBAH i) $ fromIntegral (trPhysical t `shift` 32)
+        R.set (R.TDBAH i) $ fromIntegral (trPhysical t `shift` (-32))
         R.set (R.TDLEN i) $ fromIntegral ringSize
         logLn $ "Tx ring " <> show i <> " | Physical: 0x" <> T.pack (showHex (trPhysical t) "") <> " | Virtual: " <> show (trVirtual t)
         txdCtl <- wbMagic <$> R.get (R.TXDCTL i)

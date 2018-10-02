@@ -4,7 +4,7 @@ module Main where
 
 import Protolude
 
-import Lib (Device(..), Env(..), busDeviceFunction, init, receive)
+import Lib (Device(..), Env(..), busDeviceFunction, init, readStats, receive)
 
 import Control.Monad.Catch (MonadCatch, MonadThrow)
 import Data.Maybe (fromJust)
@@ -33,7 +33,11 @@ run = do
            forever $ readAndWait dev'
   where
     readAndWait dev = do
-        packetBufs <- evalStateT (receive 0) dev
+        stats <- evalStateT readStats dev
         liftIO $ do
-            putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
+            putStrLn (show stats :: Text)
             usleep 1000000
+        -- packetBufs <- evalStateT (receive 0) dev
+        -- liftIO $ do
+        --     putStrLn $ "Received Packets: " <> (show packetBufs :: Text)
+        --     usleep 1000000
