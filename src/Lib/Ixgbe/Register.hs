@@ -232,7 +232,7 @@ dumpRegisters = do
     let bdf = unBusDeviceFunction $ devBdf dev
     logLn $ "Dumping all registers of device " <> show bdf <> ":"
     forM_
-        [0,0x4 .. 0x0E000]
+        [0,0x2 .. 0x0E000]
         (\addr ->
              let register = toEnum addr
               in when (register /= UNDEFINED) $ do
