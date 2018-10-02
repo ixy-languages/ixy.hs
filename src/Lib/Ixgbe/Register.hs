@@ -18,7 +18,9 @@ import Lib.Prelude hiding (get, mask)
 
 import qualified Control.Monad.State as State
 import Data.Bits ((.&.), (.|.), complement)
+import qualified Data.Text as T
 import Foreign.Storable (peekByteOff, pokeByteOff)
+import Numeric (showHex)
 import System.Posix.Unistd (usleep)
 
 data Register
@@ -230,9 +232,9 @@ dumpRegisters = do
     let bdf = unBusDeviceFunction $ devBdf dev
     logLn $ "Dumping all registers of device " <> show bdf <> ":"
     forM_
-        [0,0x40 .. 0x0E000]
+        [0,0x4 .. 0x0E000]
         (\addr ->
              let register = toEnum addr
               in when (register /= UNDEFINED) $ do
                      current <- get register
-                     logLn $ show register <> ": " <> show current)
+                     logLn $ show register <> ": " <> T.pack (showHex current ""))
