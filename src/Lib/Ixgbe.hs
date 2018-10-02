@@ -145,7 +145,7 @@ initRx
         R.set (R.RDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
         R.set (R.RDBAH i) $ fromIntegral (shift (trPhysical t) (-32))
         R.set (R.RDLEN i) $ fromIntegral ringSize
-        logLn $ "Rx ring " <> show i <> " | Physical: " <> T.pack (showHex (trPhysical t) "") <> " | Virtual: " <> show (trVirtual t)
+        logLn $ "Rx ring " <> show i <> " | Physical: 0x" <> T.pack (showHex (trPhysical t) "") <> " | Virtual: " <> show (trVirtual t)
         -- Set ring to empty at the start.
         R.set (R.RDH i) 0
         R.set (R.RDT i) 0
@@ -223,7 +223,7 @@ initTx
         R.set (R.TDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
         R.set (R.TDBAH i) $ fromIntegral (trPhysical t `shift` 32)
         R.set (R.TDLEN i) $ fromIntegral ringSize
-        logLn $ "Tx ring " <> show i <> " | Physical: " <> T.pack (showHex (trPhysical t) "") <> " | Virtual: " <> show (trVirtual t)
+        logLn $ "Tx ring " <> show i <> " | Physical: 0x" <> T.pack (showHex (trPhysical t) "") <> " | Virtual: " <> show (trVirtual t)
         txdCtl <- wbMagic <$> R.get (R.TXDCTL i)
         R.set (R.TXDCTL i) txdCtl
         let base = castPtr (trVirtual t) :: Ptr TransmitDescriptor
