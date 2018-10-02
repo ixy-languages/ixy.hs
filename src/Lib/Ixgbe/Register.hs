@@ -152,7 +152,7 @@ instance Enum Register where
     toEnum v
         | v >= 0x01018 && v <= 0x01FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
     toEnum v
-        | v >= 0x0D018 && v <= 0x0DFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x01018) `quot` 0x40) + 64)
+        | v >= 0x0D018 && v <= 0x0DFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x0D018) `quot` 0x40) + 64)
     toEnum 0x00018 = CTRL_EXT
     toEnum v
         | v >= 0x0100C && v <= 0x01FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
@@ -237,4 +237,4 @@ dumpRegisters = do
              let register = toEnum addr
               in when (register /= UNDEFINED) $ do
                      current <- get register
-                     logLn $ show register <> ": " <> T.pack (showHex current "0x"))
+                     logLn $ show register <> ": 0x" <> T.pack (showHex current ""))
