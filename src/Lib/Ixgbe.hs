@@ -140,7 +140,7 @@ initRx
         t <- allocateDMA ringSize True
         memSet (trVirtual t) (fromIntegral ringSize) 0xFF
         R.set (R.RDBAL i) $ fromIntegral (trPhysical t .&. 0xFFFFFFFF)
-        R.set (R.RDBAH i) $ fromIntegral (shift (trPhysical t) 32)
+        R.set (R.RDBAH i) $ fromIntegral (shift (trPhysical t) (-32))
         R.set (R.RDLEN i) $ fromIntegral ringSize
         logLn $ "Rx ring " <> show i <> " | Physical: " <> show (trPhysical t) <> " | Virtual: " <> show (trVirtual t)
         -- Set ring to empty at the start.
@@ -249,7 +249,7 @@ setPromiscous = do
     dev <- get
     let bdf = unBusDeviceFunction $ devBdf dev
     logLn $ "Enabling promiscous mode for device " <> bdf <> "."
-    R.set R.FCTRL (unicastPromiscousEnable .|. multicastPromiscousEnable)
+    R.setMask R.FCTRL (unicastPromiscousEnable .|. multicastPromiscousEnable)
   where
     multicastPromiscousEnable = 0x00000100
     unicastPromiscousEnable = 0x00000200
