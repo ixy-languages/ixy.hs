@@ -199,12 +199,12 @@ get reg = do
 
 waitClear :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
 waitClear reg mask = do
-    logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to clear."
+    logLn $ "Waiting for flags " <> T.pack (showHex mask "") <> " in register " <> show reg <> " to clear."
     waitUntil reg mask (== 0)
 
 waitSet :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> m ()
 waitSet reg mask = do
-    logLn $ "Waiting for flags " <> show mask <> " in register " <> show reg <> " to be set."
+    logLn $ "Waiting for flags " <> T.pack (showHex mask "") <> " in register " <> show reg <> " to be set."
     waitUntil reg mask (== mask)
 
 waitUntil :: (MonadIO m, MonadReader env m, Logger env, DeviceState m) => Register -> Word32 -> (Word32 -> Bool) -> m ()
