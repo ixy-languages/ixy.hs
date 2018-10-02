@@ -294,13 +294,16 @@ linkSpeed = do
     links10G = 0x30000000
 
 receive :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => Int -> m [PacketBuf]
-receive id = inner id 0
+receive queueId = inner 0
   where
-    inner queueId passes = do
+    inner passes = do
         dev <- get
         let queue = (dev ^. devRxQueues) !! queueId
         let (descPtr, pbPtr) = fromJust $ focus (queue ^. rxqDescriptors)
         descriptor <- liftIO $ peek descPtr
+        h <- R.get (R.RDH queueId)
+        logLn $ "Ring buffer head is at " <> show h <> "."
+        -- logLn $ ("Ring buffer head is at " <> show) <$> R.get (R.RDH queueId)
         let status = rdStatusError descriptor
          in if isDone status
                 then if not $ isEOP status
@@ -312,7 +315,7 @@ receive id = inner id 0
                                  dev &
                                  devRxQueues .~
                                  ((dev ^. devRxQueues) & ix queueId .~ (queue & rxqDescriptors .~ rotR (queue ^. rxqDescriptors)))
-                             (packetBuf :) <$> inner queueId (passes + 1)
+                             (packetBuf :) <$> inner (passes + 1)
                 else do
                     put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix queueId .~ queue {rxqIndex = rxqIndex queue + passes})
                     R.set (R.RDT queueId) $ fromIntegral (rxqIndex queue + passes)
@@ -324,9 +327,9 @@ receive id = inner id 0
         return pb {pbBufSize = fromIntegral $ rdLength desc}
     resetDescriptor descPtr = do
         dev <- get
-        let queue = (dev ^. devRxQueues) !! id
+        let queue = (dev ^. devRxQueues) !! queueId
         ((pbPtr, _), memPool) <- runStateT allocatePktBuf (queue ^. rxqMemPool)
-        put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix id .~ (queue & rxqMemPool .~ memPool))
+        put $ dev & devRxQueues .~ ((dev ^. devRxQueues) & ix queueId .~ (queue & rxqMemPool .~ memPool))
         pb <- liftIO $ peek pbPtr
         let desc = ReadRx {rdPacketAddr = bufAddr pb, rdHeaderAddr = 0}
          in liftIO $ poke descPtr desc
