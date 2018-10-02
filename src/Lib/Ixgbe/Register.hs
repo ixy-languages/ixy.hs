@@ -142,26 +142,26 @@ instance Enum Register where
     toEnum v
         | v >= 0x0D008 && v <= 0x0DFC8 && v `mod` 0x40 == 8 = RDLEN (((v - 0x0D008) `quot` 0x40) + 64)
     toEnum v
-        | v >= 0x01010 && v <= 0x1FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01014) `quot` 0x40)
+        | v >= 0x01010 && v <= 0x01FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01014) `quot` 0x40)
     toEnum v
-        | v >= 0x0D010 && v <= 0xDFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D014) `quot` 0x40) + 64)
+        | v >= 0x0D010 && v <= 0x0DFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D014) `quot` 0x40) + 64)
     toEnum v
         | v >= 0x01014 && v <= 0x01FD4 && v `mod` 0x40 == 0x14 = SRRCTL ((v - 0x01014) `quot` 0x40)
     toEnum v
-        | v >= 0x0D014 && v <= 0x0DF4 && v `mod` 0x40 == 0x14 = SRRCTL (((v - 0x0D014) `quot` 0x40) + 64)
+        | v >= 0x0D014 && v <= 0x0D0F4 && v `mod` 0x40 == 0x14 = SRRCTL (((v - 0x0D014) `quot` 0x40) + 64)
     toEnum v
-        | v >= 0x01018 && v <= 0x1FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
+        | v >= 0x01018 && v <= 0x01FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
     toEnum v
-        | v >= 0x0D018 && v <= 0xDFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x01018) `quot` 0x40) + 64)
+        | v >= 0x0D018 && v <= 0x0DFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x01018) `quot` 0x40) + 64)
     toEnum 0x00018 = CTRL_EXT
     toEnum v
-        | v >= 0x0100C && v <= 0x1FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
+        | v >= 0x0100C && v <= 0x01FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
     toEnum v
-        | v >= 0x0D00C && v <= 0xDFCC && v `mod` 0x40 == 0xC = DCA_RXCTRL (((v - 0x0D00C) `quot` 0x40) + 64)
+        | v >= 0x0D00C && v <= 0x0DFCC && v `mod` 0x40 == 0xC = DCA_RXCTRL (((v - 0x0D00C) `quot` 0x40) + 64)
     toEnum v
-        | v >= 0x01028 && v <= 0x1FE8 && v `mod` 0x40 == 0x28 = RXDCTL ((v - 0x01028) `quot` 0x40)
+        | v >= 0x01028 && v <= 0x01FE8 && v `mod` 0x40 == 0x28 = RXDCTL ((v - 0x01028) `quot` 0x40)
     toEnum v
-        | v >= 0x0D028 && v <= 0xDFE8 && v `mod` 0x40 == 0x28 = RXDCTL (((v - 0x0D028) `quot` 0x40) + 64)
+        | v >= 0x0D028 && v <= 0x0DFE8 && v `mod` 0x40 == 0x28 = RXDCTL (((v - 0x0D028) `quot` 0x40) + 64)
     toEnum 0x08100 = DTXMXSZRQ
     toEnum 0x04900 = RTTDCS
     toEnum 0x04074 = GPRC
@@ -237,4 +237,4 @@ dumpRegisters = do
              let register = toEnum addr
               in when (register /= UNDEFINED) $ do
                      current <- get register
-                     logLn $ show register <> ": " <> T.pack (showHex current ""))
+                     logLn $ show register <> ": " <> T.pack (showHex current "0x"))
