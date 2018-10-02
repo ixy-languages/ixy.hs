@@ -23,7 +23,6 @@ import System.Posix.Memory (MemoryMapFlag(MemoryMapShared), MemoryProtection(Mem
 base :: Path.AbsDir
 base = Path.dirPath "/sys/bus/pci/devices/"
 
--- TODO: Check if reading then writing is not somehow out-of-ordered.
 enableDMA :: (MonadCatch m, MonadIO m, MonadReader env m, Logger env, DeviceState m) => m ()
 enableDMA = do
     dev <- get
@@ -39,6 +38,7 @@ enableDMA = do
                     (\h -> do
                          PathIO.hSeek h PathIO.AbsoluteSeek cmdRegOffset
                          value <- B.hGet h 2
+                         PathIO.hSeek h PathIO.AbsoluteSeek cmdRegOffset
                          B.hPut h $ setDMA value))
   where
     cmdRegOffset = 4
