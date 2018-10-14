@@ -77,7 +77,8 @@ allocateRaw size contiguous = do
                       MemoryMapShared
     ptr <- bracket (handleToFd h) closeFd (\fd -> Just fd `f` 0)
     memoryLock ptr $ fromIntegral s
-    Dir.removeFile fname
+    -- We should remove this, but not here.
+    -- Dir.removeFile fname
     return ptr
 
 -- $ Utility
@@ -89,7 +90,7 @@ translate virt = liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner
  where
   inner h = do
     PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
-    getAddr . fromMaybe 0 . fromByteString <$> B.hGet h 8
+    getAddr . fromMaybe 0xdeadbeef . fromByteString <$> B.hGet h 8
   path         = Path.absFile "/proc/self/pagemap"
   WordPtr addr = ptrToWordPtr virt
   offset       = (addr `quot` pageSize) * 8 -- This is not arch-specific, hence the magic number.
