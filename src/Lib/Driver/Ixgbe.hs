@@ -116,7 +116,8 @@ instance Driver Device where
                     in do put $ dev & devRxQueues .~ queues
                           -- Careful with updating the tail pointer here, if we optimize this, it
                           -- won't be correct anymore.
-                          runReaderT (R.set (R.RDT queueId) $ fromIntegral numBufs) dev
+                          runReaderT (do current <- R.get (R.RDT queueId)
+                                         R.set (R.RDT queueId) (current + fromIntegral numBufs)) dev
                           return $ V.toList packets
     where inner (descPtr, bufPtr) = do descriptor <- liftIO $ peek descPtr
                                        if isDone $ rdStatusError descriptor then

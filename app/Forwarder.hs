@@ -25,8 +25,8 @@ run = do
     (forever $ do
       packets <- receive 0 8
       liftIO $ do
-        let pktsStr = map (T.pack . BC.unpack) packets
-        mapM_ putStrLn pktsStr
+        -- let pktsStr = map (T.pack . BC.unpack) packets
+        -- mapM_ putStrLn pktsStr
         putStrLn (show packets :: Text)
         usleep 1000000
     )
