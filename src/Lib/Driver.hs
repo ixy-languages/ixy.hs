@@ -12,6 +12,7 @@
 module Lib.Driver
   ( Driver(..)
   , Statistics(..)
+  , SendResult(..)
   )
 where
 

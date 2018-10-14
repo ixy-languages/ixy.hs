@@ -33,7 +33,9 @@ import           Control.Lens            hiding ( index
                                                 )
 import qualified Data.ByteString               as B
 import qualified Data.Text                     as T
-import           Foreign.Marshal.Array          ( peekArray )
+import           Foreign.Marshal.Array          ( peekArray
+                                                , pokeArray
+                                                )
 import           Foreign.Storable               ( sizeOf
                                                 , poke
                                                 , peek
@@ -137,25 +139,26 @@ instance Driver Device where
          in do numBufs <- clean queue
                let ptrs = V.toList $ V.take numBufs $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
                     in do mapM_ inner $ zip ptrs buffers
-                          let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. rxqBuffers)
-                              queues = (dev ^. devRxQueues) V.// [(queueId, queue')]
-                               in do put $ dev & devRxQueues .~ queues
+                          let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. txqBuffers)
+                              queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
+                               in do put $ dev & devTxQueues .~ queues
                                      runReaderT (do current <- R.get (R.TDT queueId)
-                                                    R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numRxQueueEntries)) dev
-                                     if B.length buffers > numBufs then Partial $ drop (B.length buffers - numBufs) buffers
-                                                                   else Done
+                                                    R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numTxQueueEntries)) dev
+                                     if length buffers > numBufs then return $ Partial $ drop (length buffers - numBufs) buffers
+                                                                   else return Done
    where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return $ numTxQueueEntries - (queue ^. txqCleanNum)
-                                                                else let descPtr = Storable.tail (queue ^. rxqDescriptors)
-                                                                          in do descriptor <- liftIO $ peek descPtr
+                                                                else let descPtr = Storable.last (queue ^. txqDescriptors)
+                                                                          in do dev <- get
+                                                                                descriptor <- liftIO $ peek descPtr
                                                                                 if isDone $ tdStatus descriptor then let queue' = queue & txqCleanNum .~ 0
-                                                                                                                         queues = (dev ^. devRxQueues) V.// [(queueId, queue')]
-                                                                                                                          in do put $ dev & devRxQueues .~ queues
+                                                                                                                         queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
+                                                                                                                          in do put $ dev & devTxQueues .~ queues
                                                                                                                                 return numTxQueueEntries
                                                                                                                 else return $ numTxQueueEntries - (queue ^. txqCleanNum)
            where isDone = flip testBit 0
          inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
-                                                liftIO $ do pokeArray (B.length buffer) bufPtr $ B.unpack buffer
-                                                            poke descPtr ReadRx {tdBufAddr=phys, tdCmdTypeLen= cmdTypeLen (B.length buffer), tdOlInfoStatus= shift (B.length buffer ) (-14)}
+                                                liftIO $ do pokeArray  bufPtr $ B.unpack buffer
+                                                            poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) (-14)}
            where cmdTypeLen len = 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000 .|. len
 
 
