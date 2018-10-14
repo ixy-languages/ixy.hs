@@ -19,7 +19,7 @@ library
   exposed-modules:     Lib
   other-modules:       Lib.Prelude, Lib.Pci, Lib.Memory, Lib.Driver, Lib.Driver.Ixgbe, Lib.Driver.Ixgbe, Lib.Driver.Ixgbe.Types, Lib.Driver.Ixgbe.Register
   build-depends:       base >= 4.7 && < 5
-                     , binary >= 0.10.0.0. && <= 0.10.0.0
+                     , binary >= 0.10.0.0 && <= 0.10.0.0
                      , bytestring >= 0.10 && <= 0.10.8.2
                      , containers >= 0.5.11.0 && <= 0.5.11.0
                      , data-clist >= 0.1.2.1 && <= 0.1.2.1
