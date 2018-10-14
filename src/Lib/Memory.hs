@@ -90,7 +90,7 @@ translate virt = liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner
  where
   inner h = do
     PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
-    getAddr . fromMaybe 0xdeadbeef . runGet getWord64le <$> B.hGet h 8
+    getAddr . runGet getWord64le <$> B.hGet h 8
   path         = Path.absFile "/proc/self/pagemap"
   WordPtr addr = ptrToWordPtr virt
   offset       = (addr `quot` pageSize) * 8 -- This is not arch-specific, hence the magic number.
