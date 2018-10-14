@@ -46,6 +46,7 @@ executable forwarder
                      , exceptions >= 0.9.0 && <= 0.10.0
                      , fast-logger >= 2.4.6 && <= 2.4.11
                      , ixy
+                     , monad-logger >= 0.3.29 && <= 0.3.29
                      , protolude >= 0.1.6 && <= 0.2.2
                      , unix >= 2.7.0.0 && <= 2.7.2.2
   default-language:    Haskell2010
