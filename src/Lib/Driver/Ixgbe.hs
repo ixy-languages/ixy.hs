@@ -72,8 +72,8 @@ instance Driver Device where
                                          stats) dev
                      rxQueues <- runReaderT (initRx numRx) dev
                      put $ dev & devRxQueues .~ V.fromList rxQueues
-                     -- txQueues <- runReaderT (initTx numTx) dev
-                     -- put $ dev & devTxQueues .~ V.fromList txQueues
+                     txQueues <- runReaderT (initTx numTx) dev
+                     put $ dev & devTxQueues .~ V.fromList txQueues
                      runReaderT (do setPromiscuous True
                                     waitForLink 1000) dev
                      where autoReadDone = 0x200

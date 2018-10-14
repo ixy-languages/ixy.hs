@@ -12,6 +12,7 @@
 module Lib
   ( newDriver
   , receive
+  , send
   , stats
   )
 where
