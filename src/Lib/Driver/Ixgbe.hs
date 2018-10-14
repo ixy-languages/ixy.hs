@@ -122,8 +122,8 @@ instance Driver Device where
                                                                                                                                               buffer <- liftIO $ peekArray (fromIntegral len) bufPtr
                                                                                                                                               return $ Just (B.pack buffer)
                                                                             else return Nothing
-           where isDone = flip testBit 1
-                 isEndOfPacket = flip testBit 2
+           where isDone = flip testBit 0
+                 isEndOfPacket = flip testBit 1
 
   send queueId buffers = undefined
 
