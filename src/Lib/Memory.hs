@@ -24,8 +24,8 @@ import           Control.Monad.Logger           ( MonadLogger
                                                 , logDebug
                                                 )
 import           Control.Monad.Catch     hiding ( bracket )
+import           Data.Binary.Get
 import qualified Data.ByteString               as B
-import           Data.ByteString.Conversion     ( fromByteString )
 import           Foreign.Ptr                    ( WordPtr(..)
                                                 , ptrToWordPtr
                                                 )
@@ -68,8 +68,8 @@ allocateRaw size contiguous = do
         then shift (shiftR size hugepageBits + 1) hugepageBits
         else size
   liftIO $ do
-    (fname, h) <- PathIO.openBinaryTempFile (Path.absDir "/mnt/huge")
-                                            (Path.relFile "ixy.huge")
+    (_, h) <- PathIO.openBinaryTempFile (Path.absDir "/mnt/huge")
+                                        (Path.relFile "ixy.huge")
     PathIO.hSetFileSize h $ fromIntegral s
     let f = memoryMap Nothing
                       (fromIntegral s)
@@ -90,7 +90,7 @@ translate virt = liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner
  where
   inner h = do
     PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
-    getAddr . fromMaybe 0xdeadbeef . fromByteString <$> B.hGet h 8
+    getAddr . fromMaybe 0xdeadbeef . runGet getWord64le <$> B.hGet h 8
   path         = Path.absFile "/proc/self/pagemap"
   WordPtr addr = ptrToWordPtr virt
   offset       = (addr `quot` pageSize) * 8 -- This is not arch-specific, hence the magic number.
