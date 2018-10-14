@@ -20,7 +20,7 @@ run = do
   readPackets dev
  where
   readPackets = evalStateT
-    (do
+    (forever $ do
       packets <- receive 0 64
       liftIO $ do
         putStrLn (show packets :: Text)
