@@ -21,6 +21,9 @@ module Lib.Driver.Ixgbe.Types
   , rxqDescriptors
   , rxqBuffers
   , TxQueue(..)
+  , txqDescriptors
+  , txqBuffers
+  , txqCleanNum
   , ReceiveDescriptor(..)
   , TransmitDescriptor(..)
   , LinkSpeed(..)
@@ -84,7 +87,9 @@ data RxQueue = RxQueue { _rxqDescriptors :: Storable.Vector (Ptr ReceiveDescript
 
 makeLenses ''RxQueue
 
-newtype TxQueue = TxQueue { _txqEntries :: Storable.Vector (Ptr TransmitDescriptor, Ptr Word8)}
+data TxQueue = TxQueue { _txqDescriptors :: Storable.Vector (Ptr TransmitDescriptor)
+                       , _txqBuffers :: Storable.Vector (Ptr Word8)
+                       , _txqCleanNum :: Int}
 
 makeLenses ''TxQueue
 

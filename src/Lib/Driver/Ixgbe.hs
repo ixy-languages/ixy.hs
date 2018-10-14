@@ -53,6 +53,9 @@ numRxQueueEntries = 512
 numTxQueueEntries :: Int
 numTxQueueEntries = 512
 
+txCleanBatch :: Int
+txCleanBatch = 32
+
 instance Driver Device where
   init bdf numRx numTx = do
     $(logDebug) $ "Initializing device " <> unBusDeviceFunction bdf <> "."
@@ -111,6 +114,9 @@ instance Driver Device where
                let queue' = queue & rxqDescriptors .~ rotateL (V.length packets) (queue ^. rxqDescriptors) & rxqBuffers .~ rotateL (V.length packets) (queue ^. rxqBuffers)
                    queues = (dev ^. devRxQueues) V.// [(queueId, queue')]
                     in do put $ dev & devRxQueues .~ queues
+                          -- Careful with updating the tail pointer here, if we optimize this, it
+                          -- won't be correct anymore.
+                          runReaderT (R.set (R.RDT queueId) $ fromIntegral numBufs) dev
                           return $ V.toList packets
     where inner (descPtr, bufPtr) = do descriptor <- liftIO $ peek descPtr
                                        if isDone $ rdStatusError descriptor then
@@ -125,6 +131,13 @@ instance Driver Device where
                  isEndOfPacket = flip testBit 1
 
   send queueId buffers = undefined
+   -- where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return ()
+   --                                                              else let descPtr = Storable.tail (queue ^. rxqDescriptors)
+   --                                                                        in do descriptor <- liftIO $ peek descPtr
+   --                                                                              if isDone $ tdStatus descriptor then undefined
+   --                                                                                                              else undefined
+   --         where isDone = flip testBit 0
+
 
 rotateL :: (Storable a) => Int -> Storable.Vector a -> Storable.Vector a
 rotateL n v = let (x, xs) = Storable.splitAt n v in xs Storable.++ x
@@ -192,7 +205,7 @@ initRx numRx = do
     $(logDebug)
       $  "Rx Region "
       <> show index
-      <> "at "
+      <> " at "
       <> show descPtr
       <> " (physical="
       <> T.pack (showHex physAddr "")
@@ -223,83 +236,83 @@ initRx numRx = do
     dropEnable   = 0x10000000
     rxdCtlEnable = 0x2000000
 
--- initTx
---   :: (MonadThrow m, MonadIO m, MonadReader Device m, MonadLogger m)
---   => Int
---   -> m [TxQueue]
--- initTx numTx = do
---   R.setMask R.HLREG0 crcPadEnable
+initTx
+  :: (MonadThrow m, MonadIO m, MonadReader Device m, MonadLogger m)
+  => Int
+  -> m [TxQueue]
+initTx numTx = do
+  R.setMask R.HLREG0 crcPadEnable
 
---   R.set (R.TXPBSIZE 0) bufferSize
---   mapM_ (\i -> R.set (R.TXPBSIZE i) 0) [1 .. 7]
+  R.set (R.TXPBSIZE 0) bufferSize
+  mapM_ (\i -> R.set (R.TXPBSIZE i) 0) [1 .. 7]
 
---   -- Take a minute to appreciate the name of this register:
---   R.set R.DTXMXSZRQ 0xFFFF
---   R.clearMask R.RTTDCS dcbArbiterDisable
+  -- Take a minute to appreciate the name of this register:
+  R.set R.DTXMXSZRQ 0xFFFF
+  R.clearMask R.RTTDCS dcbArbiterDisable
 
---   txQueues <- mapM setupQueue [0 .. (numTx - 1)]
---   -- Enable Tx again.
---   R.set R.DMATXCTL txEnable
---   return txQueues
---  where
---   crcPadEnable      = 0x401
---   bufferSize        = 0xA000
---   dcbArbiterDisable = 0x40
---   txEnable          = 0x1
---   setupQueue
---     :: (MonadThrow m, MonadIO m, MonadReader Device m, MonadLogger m)
---     => Int
---     -> m TxQueue
---   setupQueue index = do
---     -- Setup descriptor ring.
---     ptr <- allocateRaw
---       (numTxQueueEntries * (sizeOf (undefined :: TransmitDescriptor) + 2048))
---       True
---     physAddr <- translate ptr
---     R.set (R.TDBAL index) $ fromIntegral (physAddr .&. 0xFFFFFFFF)
---     R.set (R.TDBAH index) $ fromIntegral (shift physAddr (-32))
---     -- Again, look at initRx to understand the seeming discrepancy here.
---     R.set (R.TDLEN index) $ fromIntegral
---       (numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor))
---     $(logDebug)
---       $  "Tx Region "
---       <> show index
---       <> "at "
---       <> show ptr
---       <> " (physical="
---       <> T.pack (showHex physAddr "")
---       <> ")."
---     txdCtl <- wbMagic <$> R.get (R.TXDCTL index)
+  txQueues <- mapM setupQueue [0 .. (numTx - 1)]
+  -- Enable Tx again.
+  R.set R.DMATXCTL txEnable
+  return txQueues
+ where
+  crcPadEnable      = 0x401
+  bufferSize        = 0xA000
+  dcbArbiterDisable = 0x40
+  txEnable          = 0x1
+  setupQueue
+    :: (MonadThrow m, MonadIO m, MonadReader Device m, MonadLogger m)
+    => Int
+    -> m TxQueue
+  setupQueue index = do
+    -- Setup descriptor ring.
+    descPtr <- allocateRaw
+      (numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor))
+      True
+    physAddr <- translate descPtr
+    R.set (R.TDBAL index) $ fromIntegral (physAddr .&. 0xFFFFFFFF)
+    R.set (R.TDBAH index) $ fromIntegral (shift physAddr (-32))
+    R.set (R.TDLEN index) $ fromIntegral
+      (numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor))
 
---     -- Fill the ring up with descriptors.
---     -- TODO: Really not sure if this is even necessary.
---     let ptrs =
---           [ ptr `plusPtr` (i * sizeOf (undefined :: TransmitDescriptor))
---           | i <- [0 .. (numTxQueueEntries - 1)]
---           ]
---     mapM_
---         (\(p, i) -> liftIO $ poke
---           p
---           ReadTx
---             { tdBufAddr      = fromIntegral $ (numRxQueueEntries + i) * sizeOf
---               (undefined :: TransmitDescriptor)
---             , tdCmdTypeLen   = 0
---             , tdOlInfoStatus = 0
---             }
---         )
---       $ zip ptrs [0 ..]
+    $(logDebug)
+      $  "Tx Region "
+      <> show index
+      <> " at "
+      <> show descPtr
+      <> " (physical="
+      <> T.pack (showHex physAddr "")
+      <> ")."
 
---     -- Set queue to empty.
---     R.set (R.TDH index) 0
---     R.set (R.TDT index) 0
+    txdCtl <- wbMagic <$> R.get (R.TXDCTL index)
+    R.set (R.TXDCTL index) txdCtl
 
---     R.setMask (R.TXDCTL index) txdCtlEnable
---     R.waitSet (R.TXDCTL index) txdCtlEnable
+    -- Set queue to empty.
+    R.set (R.TDH index) 0
+    R.set (R.TDT index) 0
 
---     return TxQueue {_txqDescriptors = CList.fromList ptrs}
---    where
---     wbMagic      = (.|. 0x40824) . (.&. complement 0x3F3F3F)
---     txdCtlEnable = 0x2000000
+    R.setMask (R.TXDCTL index) txdCtlEnable
+    R.waitSet (R.TXDCTL index) txdCtlEnable
+
+    -- Fill the ring up with descriptors.
+    bufPtr <- allocateRaw (numRxQueueEntries * 2048) False
+    let descPtrs =
+          [ castPtr
+              $         descPtr
+              `plusPtr` (i * sizeOf (undefined :: TransmitDescriptor))
+          | i <- [0 .. (numTxQueueEntries - 1)]
+          ]
+        bufPtrs =
+          [ castPtr $ bufPtr `plusPtr` (i * 2048)
+          | i <- [0 .. (numTxQueueEntries - 1)]
+          ]
+    return TxQueue
+      { _txqDescriptors = Storable.fromList descPtrs
+      , _txqBuffers     = Storable.fromList bufPtrs
+      , _txqCleanNum    = 0
+      }
+   where
+    wbMagic      = (.|. 0x40824) . (.&. complement 0x3F3F3F)
+    txdCtlEnable = 0x2000000
 
 waitForLink :: (MonadIO m, MonadReader Device m, MonadLogger m) => Int -> m ()
 waitForLink maxTries = do
