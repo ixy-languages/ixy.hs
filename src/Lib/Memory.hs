@@ -29,6 +29,7 @@ import qualified Data.ByteString               as B
 import           Foreign.Ptr                    ( WordPtr(..)
                                                 , ptrToWordPtr
                                                 )
+import           System.IO.Error                ( userError )
 import qualified System.Path                   as Path
 import qualified System.Path.Directory         as Dir
 import qualified System.Path.IO                as PathIO
@@ -90,7 +91,12 @@ translate virt = liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner
  where
   inner h = do
     PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
-    getAddr . runGet getWord64le <$> B.hGet h 8
+    buf <- B.hGet h 8
+    case runGetIncremental getWord64le `pushChunk` buf of
+      Done _ _ b -> return $ getAddr $ fromIntegral b
+      Partial _ ->
+        throwM $ userError "Partial input when parsing physical address."
+      Fail _ _ _ -> throwM $ userError "Physical address was malformed."
   path         = Path.absFile "/proc/self/pagemap"
   WordPtr addr = ptrToWordPtr virt
   offset       = (addr `quot` pageSize) * 8 -- This is not arch-specific, hence the magic number.
