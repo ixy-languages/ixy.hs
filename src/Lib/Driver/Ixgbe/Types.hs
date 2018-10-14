@@ -48,7 +48,7 @@ data ReceiveDescriptor
   = ReadRx { rdPacketAddr :: Word64
            , rdHeaderAddr :: Word64 }
   | WritebackRx { rdStatusError :: Word32
-                , rdLength :: Word16 }
+                , rdLength :: Word16 } deriving (Show)
 
 instance Storable ReceiveDescriptor where
   sizeOf _ = 2 * sizeOf (0 :: Word64)

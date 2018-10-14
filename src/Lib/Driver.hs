@@ -25,7 +25,7 @@ class Driver a where
   init :: (MonadCatch m, MonadThrow m, MonadIO m, MonadLogger m) => BusDeviceFunction -> Int -> Int -> m a
   stats :: (MonadIO m, MonadReader a m) => m Statistics
   setPromiscuous :: (MonadIO m, MonadReader a m, MonadLogger m) => Bool -> m ()
-  receive :: (MonadThrow m, MonadIO m, MonadState a m) => Int -> Int -> m [ByteString]
+  receive :: (MonadThrow m, MonadIO m, MonadState a m, MonadLogger m) => Int -> Int -> m [ByteString]
   send :: (MonadIO m, MonadState a m) => Int -> [ByteString] -> m ()
 
 
