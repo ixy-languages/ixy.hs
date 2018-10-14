@@ -117,7 +117,8 @@ instance Driver Device where
                           -- Careful with updating the tail pointer here, if we optimize this, it
                           -- won't be correct anymore.
                           runReaderT (do current <- R.get (R.RDT queueId)
-                                         R.set (R.RDT queueId) (current + fromIntegral numBufs)) dev
+                                         $(logDebug) $ "Tail pointer: " <> show current
+                                         R.set (R.RDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numRxQueueEntries)) dev
                           return $ V.toList packets
     where inner (descPtr, bufPtr) = do descriptor <- liftIO $ peek descPtr
                                        if isDone $ rdStatusError descriptor then
