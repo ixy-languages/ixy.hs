@@ -26,8 +26,9 @@ class Driver a where
   stats :: (MonadIO m, MonadReader a m) => m Statistics
   setPromiscuous :: (MonadIO m, MonadReader a m, MonadLogger m) => Bool -> m ()
   receive :: (MonadThrow m, MonadIO m, MonadState a m, MonadLogger m) => Int -> Int -> m [ByteString]
-  send :: (MonadIO m, MonadState a m) => Int -> [ByteString] -> m ()
+  send :: (MonadIO m, MonadState a m) => Int -> [ByteString] -> m SendResult
 
+data SendResult = Done | Partial [ByteString]
 
 data Statistics = Statistics { stRxPackets :: Int
                              , stTxPackets :: Int

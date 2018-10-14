@@ -117,7 +117,6 @@ instance Driver Device where
                           -- Careful with updating the tail pointer here, if we optimize this, it
                           -- won't be correct anymore.
                           runReaderT (do current <- R.get (R.RDT queueId)
-                                         $(logDebug) $ "Tail pointer: " <> show current
                                          R.set (R.RDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numRxQueueEntries)) dev
                           return $ V.toList packets
     where inner (descPtr, bufPtr) = do descriptor <- liftIO $ peek descPtr
@@ -132,13 +131,33 @@ instance Driver Device where
            where isDone = flip testBit 0
                  isEndOfPacket = flip testBit 1
 
-  send queueId buffers = undefined
-   -- where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return ()
-   --                                                              else let descPtr = Storable.tail (queue ^. rxqDescriptors)
-   --                                                                        in do descriptor <- liftIO $ peek descPtr
-   --                                                                              if isDone $ tdStatus descriptor then undefined
-   --                                                                                                              else undefined
-   --         where isDone = flip testBit 0
+  send queueId buffers = do
+    dev <- get
+    let queue = (dev ^. devTxQueues) V.! queueId
+         in do numBufs <- clean queue
+               let ptrs = V.toList $ V.take numBufs $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
+                    in do mapM_ inner $ zip ptrs buffers
+                          let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. rxqBuffers)
+                              queues = (dev ^. devRxQueues) V.// [(queueId, queue')]
+                               in do put $ dev & devRxQueues .~ queues
+                                     runReaderT (do current <- R.get (R.TDT queueId)
+                                                    R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numRxQueueEntries)) dev
+                                     if B.length buffers > numBufs then Partial $ drop (B.length buffers - numBufs) buffers
+                                                                   else Done
+   where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return $ numTxQueueEntries - (queue ^. txqCleanNum)
+                                                                else let descPtr = Storable.tail (queue ^. rxqDescriptors)
+                                                                          in do descriptor <- liftIO $ peek descPtr
+                                                                                if isDone $ tdStatus descriptor then let queue' = queue & txqCleanNum .~ 0
+                                                                                                                         queues = (dev ^. devRxQueues) V.// [(queueId, queue')]
+                                                                                                                          in do put $ dev & devRxQueues .~ queues
+                                                                                                                                return numTxQueueEntries
+                                                                                                                else return $ numTxQueueEntries - (queue ^. txqCleanNum)
+           where isDone = flip testBit 0
+         inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
+                                                liftIO $ do pokeArray (B.length buffer) bufPtr $ B.unpack buffer
+                                                            poke descPtr ReadRx {tdBufAddr=phys, tdCmdTypeLen= cmdTypeLen (B.length buffer), tdOlInfoStatus= shift (B.length buffer ) (-14)}
+           where cmdTypeLen len = 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000 .|. len
+
 
 
 rotateL :: (Storable a) => Int -> Storable.Vector a -> Storable.Vector a
