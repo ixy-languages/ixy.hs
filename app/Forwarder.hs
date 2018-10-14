@@ -12,7 +12,7 @@ import           System.Posix.Unistd            ( usleep )
 newtype App a = App { runApp :: LoggingT IO a } deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadLogger)
 
 main :: IO ()
-main = return ()
+main = runStdoutLoggingT (runApp run)
 
 run :: App ()
 run = do
