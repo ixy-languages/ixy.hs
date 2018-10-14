@@ -25,8 +25,11 @@ run = do
   readPackets = evalStateT
     (forever $ do
       packets <- receive 0 32
-      send 0 packets
-      -- liftIO $ do
-      --   let b = map (toLazyByteString . byteStringHex) packets
-      --   if length b > 0 then putStrLn (show packets :: Text) else return ()
+      let b = map (toLazyByteString . byteStringHex) packets
+      if length b > 0
+        then do
+          liftIO $ putStrLn (show b :: Text)
+          _ <- send 0 packets
+          return ()
+        else return ()
     )
