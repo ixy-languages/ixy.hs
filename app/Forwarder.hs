@@ -5,6 +5,7 @@ import           Lib
 
 import           Control.Monad.Catch
 import           Control.Monad.Logger
+import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8         as BC
 import           Data.Maybe
 import qualified Data.Text                     as T
@@ -23,10 +24,8 @@ run = do
  where
   readPackets = evalStateT
     (forever $ do
-      packets <- receive 0 8
+      packets <- receive 0 32
       liftIO $ do
-        -- let pktsStr = map (T.pack . BC.unpack) packets
-        -- mapM_ putStrLn pktsStr
-        putStrLn (show packets :: Text)
-        usleep 1000000
+        let b = map (toLazyByteString . byteStringHex) packets
+        if length b > 0 then putStrLn (show packets :: Text) else return ()
     )
