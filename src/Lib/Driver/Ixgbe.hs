@@ -113,7 +113,6 @@ instance Driver Device where
                     in do put $ dev & devRxQueues .~ queues
                           return $ V.toList packets
     where inner (descPtr, bufPtr) = do descriptor <- liftIO $ peek descPtr
-                                       $(logDebug) $ "Descriptor: " <> show descriptor
                                        if isDone $ rdStatusError descriptor then
                                                                             if not $ isEndOfPacket $ rdStatusError descriptor then throwM $ userError "Multi-segment packets are not supported."
                                                                                                                               else let len = rdLength descriptor
