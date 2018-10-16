@@ -143,18 +143,18 @@ instance Driver Device where
                               queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
                                in do put $ dev & devTxQueues .~ queues
                                      runReaderT (do current <- R.get (R.TDT queueId)
+                                                    $(logDebug) $ "TX head is at: " <> show current
                                                     R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numTxQueueEntries)) dev
                                      if length buffers > numBufs then return $ Partial $ drop (length buffers - numBufs) buffers
                                                                    else return Done
    where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return $ numTxQueueEntries - (queue ^. txqCleanNum)
                                                                 else let descPtr = Storable.last (queue ^. txqDescriptors)
-                                                                          in do dev <- get
-                                                                                descriptor <- liftIO $ peek descPtr
+                                                                          in do descriptor <- liftIO $ peek descPtr
                                                                                 if isDone $ tdStatus descriptor then return numTxQueueEntries
                                                                                                                 else return $ numTxQueueEntries - (queue ^. txqCleanNum)
            where isDone = flip testBit 0
          inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
-                                                liftIO $ do pokeArray  bufPtr $ B.unpack buffer
+                                                liftIO $ do pokeArray bufPtr $ B.unpack buffer
                                                             poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) 14}
            where cmdTypeLen = (.|.) (0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000)
 
