@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main where
 
@@ -51,5 +52,14 @@ forward :: StateT (Device, Device) App ()
 forward = do
   (rxDev, txDev ) <- get
   (pkts , rxDev') <- runStateT (receive 0 32) rxDev
-  txDev'          <- execStateT (send 0 pkts) txDev
-  put (rxDev', txDev')
+  if not (null pkts)
+    then do
+      $(logDebug)
+        $  "["
+        <> unBusDeviceFunction (_devBdf rxDev)
+        <> " -> "
+        <> unBusDeviceFunction (_devBdf txDev)
+        <> "] Forwarding packets..."
+      txDev' <- execStateT (send 0 pkts) txDev
+      put (rxDev', txDev')
+    else put (rxDev', txDev)

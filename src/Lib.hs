@@ -13,13 +13,17 @@ module Lib
   ( newDriver
   , Driver(..)
   , Device(..)
+  , devBdf
+  , unBusDeviceFunction
   )
 where
 
 import           Lib.Driver
 import           Lib.Driver.Ixgbe               ( )
 import           Lib.Driver.Ixgbe.Types
-import           Lib.Pci                        ( busDeviceFunction )
+import           Lib.Pci                        ( busDeviceFunction
+                                                , unBusDeviceFunction
+                                                )
 import           Lib.Prelude
 
 import           Control.Monad.Catch
