@@ -139,7 +139,7 @@ instance Driver Device where
                $(logDebug) $ "Number of buffers that can be sent: " <> show numBufs
                let ptrs = V.toList $ V.take numBufs $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
                     in do mapM_ inner $ zip ptrs buffers
-                          let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. txqBuffers)
+                          let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. txqBuffers) & txqCleanNum .~ numTxQueueEntries - numBufs
                               queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
                                in do put $ dev & devTxQueues .~ queues
                                      runReaderT (do current <- R.get (R.TDT queueId)
@@ -150,10 +150,7 @@ instance Driver Device where
                                                                 else let descPtr = Storable.last (queue ^. txqDescriptors)
                                                                           in do dev <- get
                                                                                 descriptor <- liftIO $ peek descPtr
-                                                                                if isDone $ tdStatus descriptor then let queue' = queue & txqCleanNum .~ 0
-                                                                                                                         queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
-                                                                                                                          in do put $ dev & devTxQueues .~ queues
-                                                                                                                                return numTxQueueEntries
+                                                                                if isDone $ tdStatus descriptor then return numTxQueueEntries
                                                                                                                 else return $ numTxQueueEntries - (queue ^. txqCleanNum)
            where isDone = flip testBit 0
          inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
