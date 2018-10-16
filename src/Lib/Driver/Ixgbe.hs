@@ -71,9 +71,8 @@ instance Driver Device where
                                          initLink
                                          stats) dev
                      rxQueues <- runReaderT (initRx numRx) dev
-                     put $ dev & devRxQueues .~ V.fromList rxQueues
                      txQueues <- runReaderT (initTx numTx) dev
-                     put $ dev & devTxQueues .~ V.fromList txQueues
+                     put $ dev & devRxQueues .~ V.fromList rxQueues & devTxQueues .~ V.fromList txQueues
                      runReaderT (do setPromiscuous True
                                     waitForLink 1000) dev
                      where autoReadDone = 0x200
@@ -159,7 +158,7 @@ instance Driver Device where
          inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
                                                 liftIO $ do pokeArray  bufPtr $ B.unpack buffer
                                                             poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) 14}
-           where cmdTypeLen len = 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000 .|. len
+           where cmdTypeLen = (.|.) (0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000)
 
 
 
