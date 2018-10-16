@@ -136,7 +136,6 @@ instance Driver Device where
     dev <- get
     let queue = (dev ^. devTxQueues) V.! queueId
          in do numBufs <- clean queue
-               $(logDebug) $ "Number of buffers that can be sent: " <> show numBufs
                let n = min numBufs $ length buffers
                    ptrs = V.toList $ V.take n $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
                     in do mapM_ inner $ zip ptrs buffers
@@ -144,9 +143,6 @@ instance Driver Device where
                               queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
                                in do put $ dev & devTxQueues .~ queues
                                      runReaderT (do current <- R.get (R.TDT queueId)
-                                                    h <- R.get (R.TDH queueId)
-                                                    $(logDebug) $ "TX head is at:" <> show h
-                                                    $(logDebug) $ "TX tail was at: " <> show current
                                                     R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + n) `mod` numTxQueueEntries)) dev
                                      if length buffers > n then return $ Partial $ drop (length buffers - n) buffers
                                                                    else return Done
@@ -218,13 +214,13 @@ initRx numRx = do
     R.set (R.RDBAH index) $ fromIntegral (shift physAddr (-32))
     R.set (R.RDLEN index) $ fromIntegral size
 
-    -- Enable the queue.
-    R.setMask (R.RXDCTL index) rxdCtlEnable
-    R.waitSet (R.RXDCTL index) rxdCtlEnable
-
     -- Set the queue to full.
     R.set (R.RDH index) 0
     R.set (R.RDT index) $ fromIntegral (numRxQueueEntries - 1)
+
+    -- Enable the queue.
+    R.setMask (R.RXDCTL index) rxdCtlEnable
+    R.waitSet (R.RXDCTL index) rxdCtlEnable
 
     $(logDebug)
       $  "Rx Region "
