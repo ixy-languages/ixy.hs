@@ -158,7 +158,7 @@ instance Driver Device where
            where isDone = flip testBit 0
          inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
                                                 liftIO $ do pokeArray  bufPtr $ B.unpack buffer
-                                                            poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) (-14)}
+                                                            poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) 14}
            where cmdTypeLen len = 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000 .|. len
 
 
@@ -265,6 +265,7 @@ initTx
   => Int
   -> m [TxQueue]
 initTx numTx = do
+  $(logDebug) $ "Initializing " <> show numTx <> " tx queues."
   R.setMask R.HLREG0 crcPadEnable
 
   R.set (R.TXPBSIZE 0) bufferSize
@@ -274,10 +275,10 @@ initTx numTx = do
   R.set R.DTXMXSZRQ 0xFFFF
   R.clearMask R.RTTDCS dcbArbiterDisable
 
-  txQueues <- mapM setupQueue [0 .. (numTx - 1)]
   -- Enable Tx again.
   R.set R.DMATXCTL txEnable
-  return txQueues
+
+  mapM setupQueue [0 .. (numTx - 1)]
  where
   crcPadEnable      = 0x401
   bufferSize        = 0xA000
@@ -318,7 +319,7 @@ initTx numTx = do
     R.waitSet (R.TXDCTL index) txdCtlEnable
 
     -- Fill the ring up with descriptors.
-    bufPtr <- allocateRaw (numRxQueueEntries * 2048) False
+    bufPtr <- allocateRaw (numTxQueueEntries * 2048) False
     let descPtrs =
           [ castPtr
               $         descPtr
