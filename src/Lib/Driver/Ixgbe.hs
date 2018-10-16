@@ -136,6 +136,7 @@ instance Driver Device where
     dev <- get
     let queue = (dev ^. devTxQueues) V.! queueId
          in do numBufs <- clean queue
+               $(logDebug) $ "Number of buffers that can be sent: " <> show numBufs
                let ptrs = V.toList $ V.take numBufs $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
                     in do mapM_ inner $ zip ptrs buffers
                           let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. txqBuffers)
