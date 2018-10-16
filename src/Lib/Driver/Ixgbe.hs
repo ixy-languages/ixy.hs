@@ -143,7 +143,9 @@ instance Driver Device where
                               queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
                                in do put $ dev & devTxQueues .~ queues
                                      runReaderT (do current <- R.get (R.TDT queueId)
-                                                    $(logDebug) $ "TX head is at: " <> show current
+                                                    h <- R.get (R.TDH queueId)
+                                                    $(logDebug) $ "TX head is at:" <> show h
+                                                    $(logDebug) $ "TX tail was at: " <> show current
                                                     R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numTxQueueEntries)) dev
                                      if length buffers > numBufs then return $ Partial $ drop (length buffers - numBufs) buffers
                                                                    else return Done
