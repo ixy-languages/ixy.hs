@@ -137,17 +137,18 @@ instance Driver Device where
     let queue = (dev ^. devTxQueues) V.! queueId
          in do numBufs <- clean queue
                $(logDebug) $ "Number of buffers that can be sent: " <> show numBufs
-               let ptrs = V.toList $ V.take numBufs $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
+               let n = min numBufs $ length buffers
+                   ptrs = V.toList $ V.take n $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
                     in do mapM_ inner $ zip ptrs buffers
-                          let queue' = queue & txqDescriptors .~ rotateL numBufs (queue ^. txqDescriptors) & txqBuffers .~ rotateL numBufs (queue ^. txqBuffers) & txqCleanNum .~ numTxQueueEntries - numBufs
+                          let queue' = queue & txqDescriptors .~ rotateL n (queue ^. txqDescriptors) & txqBuffers .~ rotateL n (queue ^. txqBuffers) & txqCleanNum .~ numTxQueueEntries - n
                               queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
                                in do put $ dev & devTxQueues .~ queues
                                      runReaderT (do current <- R.get (R.TDT queueId)
                                                     h <- R.get (R.TDH queueId)
                                                     $(logDebug) $ "TX head is at:" <> show h
                                                     $(logDebug) $ "TX tail was at: " <> show current
-                                                    R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + numBufs) `mod` numTxQueueEntries)) dev
-                                     if length buffers > numBufs then return $ Partial $ drop (length buffers - numBufs) buffers
+                                                    R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + n) `mod` numTxQueueEntries)) dev
+                                     if length buffers > n then return $ Partial $ drop (length buffers - n) buffers
                                                                    else return Done
    where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return $ numTxQueueEntries - (queue ^. txqCleanNum)
                                                                 else let descPtr = Storable.last (queue ^. txqDescriptors)
