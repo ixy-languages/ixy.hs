@@ -75,7 +75,7 @@ instance Storable TransmitDescriptor where
   alignment = sizeOf
   peek ptr = do
     status <- peekByteOff ptr $ sizeOf (0 :: Word64) + sizeOf (0 :: Word32)
-    return WritebackTx {tdStatus =status}
+    return WritebackTx {tdStatus = status}
   poke ptr tdesc = do
     poke (castPtr ptr) $ tdBufAddr tdesc
     pokeByteOff ptr (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc

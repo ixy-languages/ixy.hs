@@ -159,7 +159,7 @@ instance Driver Device where
          inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
                                                 liftIO $ do pokeArray bufPtr $ B.unpack buffer
                                                             poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) 14}
-           where cmdTypeLen = (.|.) (0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000 .|. 0x300000)
+           where cmdTypeLen = (.|.) (0x300000 .|. 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000)
 
 
 
@@ -336,7 +336,9 @@ initTx numTx = do
       , _txqCleanNum    = 0
       }
    where
-    wbMagic      = (.|. 0x40824) . (.&. complement 0x3F3F3F)
+    wbMagic =
+      (.|. (36 .|. shift 8 8 .|. shift 4 16))
+        . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
     txdCtlEnable = 0x2000000
 
 waitForLink :: (MonadIO m, MonadReader Device m, MonadLogger m) => Int -> m ()
@@ -375,4 +377,3 @@ linkSpeed = do
   links100M  = 0x10000000
   links1G    = 0x20000000
   links10G   = 0x30000000
-
