@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module      :  Lib
 -- Copyright   :  Alex Egger 2018
@@ -37,6 +38,6 @@ newDriver
   -> m (Maybe Device)
 newDriver bdfT numRx numTx = case busDeviceFunction bdfT of
   Just bdf -> do
-    dev <- init bdf numRx numTx
+    !dev <- init bdf numRx numTx
     return $ Just dev
   Nothing -> return Nothing
