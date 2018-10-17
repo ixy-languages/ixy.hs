@@ -35,4 +35,4 @@ data Statistics = Statistics { stRxPackets :: Int
                              , stTxPackets :: Int
                              , stRxBytes :: Int
                              , stTxBytes :: Int
-                             }
+                             } deriving (Show)

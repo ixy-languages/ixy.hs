@@ -286,14 +286,12 @@ initTx numTx = do
     -> m TxQueue
   setupQueue index = do
     -- Setup descriptor ring.
-    descPtr <- allocateRaw
-      (numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor))
-      True
+    let size = numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor)
+    descPtr  <- allocateRaw size True
     physAddr <- translate descPtr
     R.set (R.TDBAL index) $ fromIntegral (physAddr .&. 0xFFFFFFFF)
     R.set (R.TDBAH index) $ fromIntegral (shift physAddr (-32))
-    R.set (R.TDLEN index) $ fromIntegral
-      (numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor))
+    R.set (R.TDLEN index) $ fromIntegral size
 
     $(logDebug)
       $  "Tx Region "

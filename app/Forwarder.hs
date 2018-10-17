@@ -54,12 +54,14 @@ forward = do
   (pkts , rxDev') <- runStateT (receive 0 32) rxDev
   if not (null pkts)
     then do
-      $(logDebug)
-        $  "["
-        <> unBusDeviceFunction (_devBdf rxDev)
-        <> " -> "
-        <> unBusDeviceFunction (_devBdf txDev)
-        <> "] Forwarding packets..."
+      -- $(logDebug)
+      --   $  "["
+      --   <> unBusDeviceFunction (_devBdf rxDev)
+      --   <> " -> "
+      --   <> unBusDeviceFunction (_devBdf txDev)
+      --   <> "] Forwarding packets..."
       txDev' <- execStateT (send 0 pkts) txDev
+      txStat <- runReaderT stats txDev
+      $(logDebug) $ show txStat
       put (rxDev', txDev')
     else put (rxDev', txDev)
