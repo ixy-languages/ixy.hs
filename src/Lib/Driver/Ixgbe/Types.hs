@@ -23,10 +23,12 @@ module Lib.Driver.Ixgbe.Types
   , TxQueue(..)
   , txqDescriptors
   , txqBuffers
-  , txqCleanNum
+  , txqCleanIndex
+  , txqIndex
   , ReceiveDescriptor(..)
   , TransmitDescriptor(..)
   , LinkSpeed(..)
+  , splice
   )
 where
 
@@ -81,6 +83,13 @@ instance Storable TransmitDescriptor where
     pokeByteOff ptr (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc
     pokeByteOff ptr (sizeOf (0 :: Word64) + sizeOf (0 :: Word32)) $ tdOlInfoStatus tdesc
 
+splice :: Storable a => Int -> Int -> Storable.Vector a -> Storable.Vector a
+splice i n v | (i + n) < Storable.length v = Storable.slice i n v
+splice i n v =
+  let toEnd = Storable.length v - i - 1
+  in  Storable.slice i toEnd v Storable.++ Storable.slice 0 (n - toEnd) v
+
+
 data RxQueue = RxQueue { _rxqDescriptors :: Storable.Vector (Ptr ReceiveDescriptor)
                        , _rxqBuffers :: Storable.Vector (Ptr Word8)}
 
@@ -89,8 +98,9 @@ makeLenses ''RxQueue
 
 data TxQueue = TxQueue { _txqDescriptors :: Storable.Vector (Ptr TransmitDescriptor)
                        , _txqBuffers :: Storable.Vector (Ptr Word8)
-                       , _txqCleanNum :: Int}
-
+                       , _txqCleanIndex :: Int
+                       , _txqIndex :: Int
+                       }
 makeLenses ''TxQueue
 
 data Device = Device { _devBase :: Ptr Word32

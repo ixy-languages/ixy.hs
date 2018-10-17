@@ -24,6 +24,7 @@ import           Lib.Memory
 import           Lib.Driver.Ixgbe.Types
 import qualified Lib.Driver.Ixgbe.Register     as R
 
+import Control.Exception.Base (assert)
 import           Control.Monad.Catch
 import           Control.Monad.Logger           ( MonadLogger
                                                 , logDebug
@@ -134,30 +135,37 @@ instance Driver Device where
 
   send queueId buffers = do
     dev <- get
-    let queue = (dev ^. devTxQueues) V.! queueId
-         in do numBufs <- clean queue
-               let n = min numBufs $ length buffers
-                   ptrs = V.toList $ V.take n $ V.zip (V.convert $ queue ^. txqDescriptors) (V.convert $ queue ^. txqBuffers)
-                    in do mapM_ inner $ zip ptrs buffers
-                          let queue' = queue & txqDescriptors .~ rotateL n (queue ^. txqDescriptors) & txqBuffers .~ rotateL n (queue ^. txqBuffers) & txqCleanNum .~ numTxQueueEntries - n
-                              queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
-                               in do put $ dev & devTxQueues .~ queues
-                                     runReaderT (do current <- R.get (R.TDT queueId)
-                                                    R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + n) `mod` numTxQueueEntries)) dev
-                                     if length buffers > n then return $ Partial $ drop (length buffers - n) buffers
-                                                                   else return Done
-   where clean queue = if (queue ^. txqCleanNum) < txCleanBatch then return $ numTxQueueEntries - (queue ^. txqCleanNum)
-                                                                else let descPtr = Storable.last (queue ^. txqDescriptors)
-                                                                          in do descriptor <- liftIO $ peek descPtr
-                                                                                if isDone $ tdStatus descriptor then return numTxQueueEntries
-                                                                                                                else return $ numTxQueueEntries - (queue ^. txqCleanNum)
-           where isDone = flip testBit 0
-         inner ((descPtr, bufPtr), buffer) = do phys <- translate bufPtr
-                                                liftIO $ do pokeArray bufPtr $ B.unpack buffer
-                                                            poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus= fromIntegral $ shift (B.length buffer ) 14}
-           where cmdTypeLen = (.|.) (0x300000 .|. 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000)
-
-
+    case (dev ^. devTxQueues) V.!? queueId of
+               Just queue -> inner queue
+               Nothing -> return $ Fail "Queue id was out of bounds."
+      where inner queue = let curIndex = queue ^. txqIndex
+                              cleanIndex = queue ^. txqCleanIndex
+                               in do cleanIndex' <- clean curIndex cleanIndex queue
+                                     let n = min (abs (curIndex - cleanIndex')) $ V.length buffers
+                                         ptrs = V.take n $ V.zip (V.convert $ splice curIndex n (queue ^. txqDescriptors)) (V.convert $ splice curIndex n (queue ^. txqBuffers))
+                                          in do V.mapM_ writeDescriptor $ V.zip buffers ptrs
+                                                dev <- get
+                                                let queue' = queue & txqIndex %~ (+n) & txqCleanIndex .~ cleanIndex'
+                                                    queues = (dev ^. devTxQueues) V.// [(queueId, queue')]
+                                                     in do put $ dev & devTxQueues .~ queues
+                                                           runReaderT (do current <- R.get (R.RDT queueId)
+                                                                          R.set (R.TDT queueId) $ fromIntegral (fromIntegral (fromIntegral current + n) `mod` numTxQueueEntries)) dev
+                                                           return $ if n < V.length buffers then Partial $ V.drop (V.length buffers - n) buffers
+                                                                                            else Done
+            writeDescriptor (buffer, (descPtr, bufPtr)) = do phys <- translate bufPtr
+                                                             liftIO $ do pokeArray bufPtr $ B.unpack buffer
+                                                                         poke descPtr ReadTx {tdBufAddr=phys, tdCmdTypeLen= fromIntegral $ cmdTypeLen (B.length buffer), tdOlInfoStatus = fromIntegral $ shift (B.length buffer) 14}
+             where cmdTypeLen = (.|.) (0x300000 .|. 0x1000000 .|. 0x2000000 .|. 0x8000000 .|. 0x20000000)
+            clean curIndex cleanIndex queue = let cleanNum = assert (curIndex > cleanIndex) (curIndex - cleanIndex)
+                                                   in if cleanNum < txCleanBatch then return cleanIndex
+                                                                                 else let descriptors = queue ^. txqDescriptors
+                                                                                          cleanBound = cleanIndex + txCleanBatch - 1
+                                                                                           in case descriptors Storable.!? cleanBound of
+                                                                                                Just descPtr -> do descriptor <- liftIO $ peek descPtr
+                                                                                                                   return $ if isDone $ tdStatus descriptor then cleanBound
+                                                                                                                                                            else cleanIndex
+                                                                                                Nothing -> throwM $ userError "Descriptor index was out of bounds."
+             where isDone = flip testBit 0
 
 rotateL :: (Storable a) => Int -> Storable.Vector a -> Storable.Vector a
 rotateL n v = let (x, xs) = Storable.splitAt n v in xs Storable.++ x
@@ -314,25 +322,14 @@ initTx numTx = do
 
     -- Fill the ring up with descriptors.
     bufPtr <- allocateRaw (numTxQueueEntries * 2048) False
-    let descPtrs =
-          [ castPtr
-              $         descPtr
-              `plusPtr` (i * sizeOf (undefined :: TransmitDescriptor))
-          | i <- [0 .. (numTxQueueEntries - 1)]
-          ]
-        bufPtrs =
-          [ castPtr $ bufPtr `plusPtr` (i * 2048)
-          | i <- [0 .. (numTxQueueEntries - 1)]
-          ]
-    return TxQueue
-      { _txqDescriptors = Storable.fromList descPtrs
-      , _txqBuffers     = Storable.fromList bufPtrs
-      , _txqCleanNum    = 0
-      }
+    let descPtrs = Storable.generate (numTxQueueEntries - 1) (generatePtrs descPtr $ sizeOf (undefined :: TransmitDescriptor))
+        bufPtrs = Storable.generate (numTxQueueEntries - 1) (generatePtrs bufPtr 2048)
+         in return TxQueue { _txqDescriptors = descPtrs, _txqBuffers = bufPtrs, _txqCleanIndex = 0, _txqIndex = 0 }
    where
     wbMagic =
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
         . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
+    generatePtrs ptr offset i = castPtr $ ptr `plusPtr` (i * offset)
     txdCtlEnable = 0x2000000
 
 waitForLink :: (MonadIO m, MonadReader Device m, MonadLogger m) => Int -> m ()

@@ -21,15 +21,16 @@ import           Lib.Pci
 
 import           Control.Monad.Catch
 import           Control.Monad.Logger           ( MonadLogger )
+import qualified Data.Vector                   as V
 
 class Driver a where
   init :: (MonadCatch m, MonadThrow m, MonadIO m, MonadLogger m) => BusDeviceFunction -> Int -> Int -> m a
   stats :: (MonadIO m, MonadReader a m) => m Statistics
   setPromiscuous :: (MonadIO m, MonadReader a m, MonadLogger m) => Bool -> m ()
   receive :: (MonadThrow m, MonadIO m, MonadState a m, MonadLogger m) => Int -> Int -> m [ByteString]
-  send :: (MonadIO m, MonadState a m, MonadLogger m) => Int -> [ByteString] -> m SendResult
+  send :: (MonadThrow m, MonadIO m, MonadState a m, MonadLogger m) => Int -> V.Vector ByteString -> m SendResult
 
-data SendResult = Done | Partial [ByteString]
+data SendResult = Done | Partial (V.Vector ByteString) | Fail Text
 
 data Statistics = Statistics { stRxPackets :: Int
                              , stTxPackets :: Int
