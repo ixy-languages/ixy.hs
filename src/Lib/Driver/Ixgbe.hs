@@ -175,7 +175,7 @@ initRx numRx = do
            R.set (R.RDBAH id) $ fromIntegral (shift physAddr (-32))
            R.set (R.RDLEN id) $ fromIntegral size
 
-           $(logDebug) $ deviceId <> "Rx ring " <> show id <> " at " <> show descPtr <> "(phy="<> show physAddr <> ")."
+           $(logDebug) $ deviceId <> " Rx ring " <> show id <> " at " <> show descPtr <> "(phy="<> show physAddr <> ")."
 
            -- Set ring to empty at the start.
            R.set (R.RDH id) 0
@@ -186,7 +186,7 @@ initRx numRx = do
            -- We essentially generate two copies of the descriptor vector and append it.
            -- So we can slice from the vector without weird wrapping action and the vector is
            -- immutable anyway.
-           let descPtrs = Storable.generate (2 * (numRxQueueEntries - 1)) (generatePtrs descPtr (sizeOf (undefined :: ReceiveDescriptor)) (numRxQueueEntries - 1))
+           let descPtrs = Storable.generate (2 * numRxQueueEntries) (generatePtrs descPtr (sizeOf (undefined :: ReceiveDescriptor)) (numRxQueueEntries - 1))
                len = numRxQueueEntries `quot` 2
                fIndex = readIORef indexRef
                fShift n = modifyIORef indexRef (+ n `mod` len)
@@ -204,7 +204,7 @@ initRx numRx = do
             in do bufPtr <- allocateRaw size False
                   -- Again, look at how the descriptor vector in initQueue is generated to
                   -- understand this.
-                  let bufPtrs = Storable.generate (2 * (numRxQueueEntries - 1)) (generatePtrs bufPtr 2048 (numRxQueueEntries - 1))
+                  let bufPtrs = Storable.generate (2 * numRxQueueEntries) (generatePtrs bufPtr 2048 (numRxQueueEntries - 1))
                       descPtrs = queue ^. rxqDescriptors
                    -- Map the buffers to their descriptors now.
                    in do Storable.zipWithM_ writeDescriptor descPtrs bufPtrs
@@ -251,7 +251,7 @@ initTx numTx = do
        initQueue :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m) => Int -> m TxQueue
        initQueue id = do
          deviceId <- showDeviceId
-         $(logDebug) $ deviceId <> "Initializing tx queue " <> show id <> "."
+         $(logDebug) $ deviceId <> " Initializing tx queue " <> show id <> "."
 
          -- Setup descriptor ring.
          let size = numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor)
@@ -263,7 +263,7 @@ initTx numTx = do
                 R.set (R.TDBAH id) $ fromIntegral (shift physAddr (-32))
                 R.set (R.TDLEN id) $ fromIntegral size
 
-                $(logDebug) $ deviceId <> "Tx ring " <> show id <> " at " <> show descPtr <> "(phy="<> show physAddr <> ")."
+                $(logDebug) $ deviceId <> " Tx ring " <> show id <> " at " <> show descPtr <> "(phy="<> show physAddr <> ")."
 
                 -- Descriptor writeback magic values.
                 R.set (R.TXDCTL id) =<< wbMagic <$> R.get (R.TXDCTL id)
@@ -271,7 +271,7 @@ initTx numTx = do
                 -- Setup TxQueue.
                 indexRef <- liftIO $ newIORef (0 :: Int)
                 cleanRef <- liftIO $ newIORef (0 :: Int)
-                let descPtrs = Storable.generate (2 * (numTxQueueEntries - 1)) (generatePtrs descPtr (sizeOf (undefined :: TransmitDescriptor)) (numTxQueueEntries -1)) 
+                let descPtrs = Storable.generate (2 * numTxQueueEntries) (generatePtrs descPtr (sizeOf (undefined :: TransmitDescriptor)) (numTxQueueEntries -1)) 
                     len = numTxQueueEntries `quot` 2
                     fIndex = readIORef indexRef
                     fClean = readIORef cleanRef
@@ -289,14 +289,15 @@ initTx numTx = do
                  -- This differs from ixy.
                  let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) == 0) (numTxQueueEntries * 2048)
                   in do bufPtr <- allocateRaw (numTxQueueEntries * 2048) False
-                        let bufPtrs = Storable.generate (2 * (numTxQueueEntries - 1)) (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
+                        let bufPtrs = Storable.generate (2 * numTxQueueEntries) (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
                         -- Tx starts out empty.
                          in do R.set (R.TDH id) 0
                                R.set (R.RDT id) 0
 
                                -- Enable queue and wait.
-                               R.setMask ( R.TXDCTL id) txdctlEnable
-                               R.waitSet (R.TXDCTL id) txdctlEnable
+                               R.setMask (R.TXDCTL id) txdctlEnable
+                               -- TODO: Find out why this wait call blocks the whole app.
+                               --R.waitSet (R.TXDCTL id) txdctlEnable
 
                                return $ queue & txqBuffers .~ bufPtrs
                  where txdctlEnable = 0x2000000
