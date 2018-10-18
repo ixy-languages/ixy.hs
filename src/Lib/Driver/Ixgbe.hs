@@ -296,6 +296,7 @@ initTx numTx = do
 
                                -- Enable queue and wait.
                                R.setMask (R.TXDCTL id) txdctlEnable
+                               R.dumpRegisters 
                                -- TODO: Find out why this wait call blocks the whole app.
                                --R.waitSet (R.TXDCTL id) txdctlEnable
 

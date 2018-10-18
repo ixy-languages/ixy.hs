@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module      :  Lib.Driver.Ixgbe.Register
 -- Copyright   :  Alex Egger 2018
@@ -18,6 +19,7 @@ module Lib.Driver.Ixgbe.Register
   , clearMask
   , waitSet
   , waitClear
+  , dumpRegisters
   )
 where
 
@@ -27,6 +29,7 @@ import           Lib.Prelude             hiding ( get
 import           Lib.Driver.Ixgbe.Types
 
 import           Control.Lens            hiding ( set )
+import           Control.Monad.Logger
 import           Data.Bits                      ( (.&.)
                                                 , (.|.)
                                                 , complement
@@ -127,6 +130,72 @@ instance Enum Register where
     fromEnum DTXMXSZRQ = 0x08100
     fromEnum (TXPBSIZE i) = 0x0CC00 + (i * 4)
     fromEnum EEC = 0x10010
+    toEnum 0x00888 = EIMC
+    toEnum 0x00000 = CTRL
+    toEnum 0x042A0 = AUTOC
+    toEnum 0x02F00 = RDRXCTL
+    toEnum v
+        | v >= 0x03C00 && v <= 0x03C1C = RXPBSIZE ((v - 0x03C00) `quot` 4)
+    toEnum v
+        | v >= 0x0CC00 && v <= 0xCC1C = TXPBSIZE ((v - 0x0CC00) `quot` 4)
+    toEnum 0x04240 = HLREG0
+    toEnum 0x03000 = RXCTRL
+    toEnum 0x05080 = FCTRL
+    toEnum v
+        | v >= 0x01000 && v <= 0x01FC0 && v `mod` 0x40 == 0 = RDBAL ((v - 0x01000) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D000 && v <= 0x0DFC0 && v `mod` 0x40 == 0 = RDBAL (((v - 0x0D000) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01004 && v <= 0x01FC4 && v `mod` 0x40 == 4 = RDBAH ((v - 0x01004) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D004 && v <= 0x0DFC4 && v `mod` 0x40 == 4 = RDBAH (((v - 0x0D004) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01008 && v <= 0x01FC8 && v `mod` 0x40 == 8 = RDLEN ((v - 0x01008) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D008 && v <= 0x0DFC8 && v `mod` 0x40 == 8 = RDLEN (((v - 0x0D008) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01010 && v <= 0x01FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01014) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D010 && v <= 0x0DFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D014) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01014 && v <= 0x01FD4 && v `mod` 0x40 == 0x14 = SRRCTL ((v - 0x01014) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D014 && v <= 0x0D0F4 && v `mod` 0x40 == 0x14 = SRRCTL (((v - 0x0D014) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01018 && v <= 0x01FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D018 && v <= 0x0DFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x0D018) `quot` 0x40) + 64)
+    toEnum 0x00018 = CTRL_EXT
+    toEnum v
+        | v >= 0x0100C && v <= 0x01FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D00C && v <= 0x0DFCC && v `mod` 0x40 == 0xC = DCA_RXCTRL (((v - 0x0D00C) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01028 && v <= 0x01FE8 && v `mod` 0x40 == 0x28 = RXDCTL ((v - 0x01028) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D028 && v <= 0x0DFE8 && v `mod` 0x40 == 0x28 = RXDCTL (((v - 0x0D028) `quot` 0x40) + 64)
+    toEnum 0x08100 = DTXMXSZRQ
+    toEnum 0x04900 = RTTDCS
+    toEnum 0x04074 = GPRC
+    toEnum 0x04080 = GPTC
+    toEnum 0x04088 = GORCL
+    toEnum 0x0408C = GORCH
+    toEnum 0x04A80 = DMATXCTL
+    toEnum 0x10010 = EEC
+    toEnum 0x042A4 = LINKS
+    toEnum v
+        | v >= 0x06000 && v <= 0x07FC0 && v `mod` 0x40 == 0 = TDBAL ((v - 0x06000) `quot` 0x40)
+    toEnum v
+        | v >= 0x06004 && v <= 0x07FC4 && v `mod` 0x40 == 4 = TDBAH ((v - 0x06004) `quot` 0x40)
+    toEnum v
+        | v >= 0x06008 && v <= 0x07FC8 && v `mod` 0x40 == 8 = TDLEN ((v - 0x06008) `quot` 0x40)
+    toEnum v
+        | v >= 0x06010 && v <= 0x07FD0 && v `mod` 0x40 == 0x10 = TDH ((v - 0x06010) `quot` 0x40)
+    toEnum v
+        | v >= 0x06018 && v <= 0x07FD8 && v `mod` 0x40 == 0x18 = TDT ((v - 0x06018) `quot` 0x40)
+    toEnum v
+        | v >= 0x06028 && v <= 0x07FE8 && v `mod` 0x40 == 0x28 = TXDCTL ((v - 0x06028) `quot` 0x40)
+    toEnum _ = UNDEFINED
 
 set :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 set register value = do
@@ -167,69 +236,11 @@ waitSet register mask = waitUntil register mask (== mask)
 
 waitClear :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 waitClear register mask = waitUntil register mask (== 0)
---     toEnum 0x00888 = EIMC
---     toEnum 0x00000 = CTRL
---     toEnum 0x042A0 = AUTOC
---     toEnum 0x02F00 = RDRXCTL
---     toEnum v
---         | v >= 0x03C00 && v <= 0x03C1C = RXPBSIZE ((v - 0x03C00) `quot` 4)
---     toEnum v
---         | v >= 0x0CC00 && v <= 0xCC1C = TXPBSIZE ((v - 0x0CC00) `quot` 4)
---     toEnum 0x04240 = HLREG0
---     toEnum 0x03000 = RXCTRL
---     toEnum 0x05080 = FCTRL
---     toEnum v
---         | v >= 0x01000 && v <= 0x01FC0 && v `mod` 0x40 == 0 = RDBAL ((v - 0x01000) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D000 && v <= 0x0DFC0 && v `mod` 0x40 == 0 = RDBAL (((v - 0x0D000) `quot` 0x40) + 64)
---     toEnum v
---         | v >= 0x01004 && v <= 0x01FC4 && v `mod` 0x40 == 4 = RDBAH ((v - 0x01004) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D004 && v <= 0x0DFC4 && v `mod` 0x40 == 4 = RDBAH (((v - 0x0D004) `quot` 0x40) + 64)
---     toEnum v
---         | v >= 0x01008 && v <= 0x01FC8 && v `mod` 0x40 == 8 = RDLEN ((v - 0x01008) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D008 && v <= 0x0DFC8 && v `mod` 0x40 == 8 = RDLEN (((v - 0x0D008) `quot` 0x40) + 64)
---     toEnum v
---         | v >= 0x01010 && v <= 0x01FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01014) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D010 && v <= 0x0DFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D014) `quot` 0x40) + 64)
---     toEnum v
---         | v >= 0x01014 && v <= 0x01FD4 && v `mod` 0x40 == 0x14 = SRRCTL ((v - 0x01014) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D014 && v <= 0x0D0F4 && v `mod` 0x40 == 0x14 = SRRCTL (((v - 0x0D014) `quot` 0x40) + 64)
---     toEnum v
---         | v >= 0x01018 && v <= 0x01FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D018 && v <= 0x0DFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x0D018) `quot` 0x40) + 64)
---     toEnum 0x00018 = CTRL_EXT
---     toEnum v
---         | v >= 0x0100C && v <= 0x01FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D00C && v <= 0x0DFCC && v `mod` 0x40 == 0xC = DCA_RXCTRL (((v - 0x0D00C) `quot` 0x40) + 64)
---     toEnum v
---         | v >= 0x01028 && v <= 0x01FE8 && v `mod` 0x40 == 0x28 = RXDCTL ((v - 0x01028) `quot` 0x40)
---     toEnum v
---         | v >= 0x0D028 && v <= 0x0DFE8 && v `mod` 0x40 == 0x28 = RXDCTL (((v - 0x0D028) `quot` 0x40) + 64)
---     toEnum 0x08100 = DTXMXSZRQ
---     toEnum 0x04900 = RTTDCS
---     toEnum 0x04074 = GPRC
---     toEnum 0x04080 = GPTC
---     toEnum 0x04088 = GORCL
---     toEnum 0x0408C = GORCH
---     toEnum 0x04A80 = DMATXCTL
---     toEnum 0x10010 = EEC
---     toEnum 0x042A4 = LINKS
---     toEnum v
---         | v >= 0x06000 && v <= 0x07FC0 && v `mod` 0x40 == 0 = TDBAL ((v - 0x06000) `quot` 0x40)
---     toEnum v
---         | v >= 0x06004 && v <= 0x07FC4 && v `mod` 0x40 == 4 = TDBAH ((v - 0x06004) `quot` 0x40)
---     toEnum v
---         | v >= 0x06008 && v <= 0x07FC8 && v `mod` 0x40 == 8 = TDLEN ((v - 0x06008) `quot` 0x40)
---     toEnum v
---         | v >= 0x06010 && v <= 0x07FD0 && v `mod` 0x40 == 0x10 = TDH ((v - 0x06010) `quot` 0x40)
---     toEnum v
---         | v >= 0x06018 && v <= 0x07FD8 && v `mod` 0x40 == 0x18 = TDT ((v - 0x06018) `quot` 0x40)
---     toEnum v
---         | v >= 0x06028 && v <= 0x07FE8 && v `mod` 0x40 == 0x28 = TXDCTL ((v - 0x06028) `quot` 0x40)
---     toEnum _ = UNDEFINED
+
+dumpRegisters :: (MonadIO m, MonadReader Device m, MonadLogger m) => m ()
+dumpRegisters = forM_
+  [0, 0x2 .. 0xE000]
+  (\addr -> do
+    value <- get (toEnum addr)
+    $(logDebug) $ show addr <> ": " <> show value
+  )
