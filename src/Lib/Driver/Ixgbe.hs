@@ -189,7 +189,7 @@ initRx numRx = do
            let descPtrs = Storable.generate (2 * numRxQueueEntries) (generatePtrs descPtr (sizeOf (undefined :: ReceiveDescriptor)) (numRxQueueEntries - 1))
                len = numRxQueueEntries `quot` 2
                fIndex = readIORef indexRef
-               fShift n = modifyIORef indexRef (+ n `mod` len)
+               fShift n = modifyIORef indexRef (\current ->  (current + n) `mod` len)
             in startRxQueue id RxQueue {_rxqDescriptors = descPtrs, _rxqBuffers = undefined, _rxqIndex = fIndex, _rxqShift = fShift}
    where dropEnable = 0x10000000
          startRxQueue :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m) => Int -> RxQueue -> m RxQueue 
