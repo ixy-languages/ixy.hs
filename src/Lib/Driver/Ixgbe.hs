@@ -75,15 +75,17 @@ init bdf numRx numTx = do
                      disableInterrupt = 0x7FFFFFFF
               initLink = R.setMask R.AUTOC anRestart where anRestart = 0x1000
        receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
-       receive dev (Driver.QueueId id) batchSize = case (dev ^. devTxQueues) V.!? id of
-                                                     Just queue -> undefined
+       receive dev (Driver.QueueId id) batchSize = case (dev ^. devRxQueues) V.!? id of
+                                                     Just queue -> inner dev queue
                                                      Nothing -> return V.empty
-        where inner queue = do curIndex <- queue ^. rxqIndex
-                               let descPtrs = Storable.slice curIndex batchSize (queue ^. rxqDescriptors)
-                                   bufPtrs = Storable.slice curIndex batchSize (queue ^. rxqBuffers)
-                                in do pkts <- V.zipWithM readPackets (V.convert descPtrs) (V.convert bufPtrs)
-                                      liftIO $ (queue ^. rxqShift) $ V.length pkts
-                                      return pkts
+        where inner dev queue = do curIndex <- queue ^. rxqIndex
+                                   let descPtrs = Storable.slice curIndex batchSize (queue ^. rxqDescriptors)
+                                       bufPtrs = Storable.slice curIndex batchSize (queue ^. rxqBuffers)
+                                    in do pkts <- V.zipWithM readPackets (V.convert descPtrs) (V.convert bufPtrs)
+                                          liftIO $ (queue ^. rxqShift) $ V.length pkts
+                                          nextIndex <- queue ^. rxqIndex
+                                          runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev
+                                          return $ V.mapMaybe identity pkts
               readPackets descPtr bufPtr = do descriptor <- liftIO $ peek descPtr
                                               if isDone $ rdStatusError descriptor then
                                                                                    if not $ isEndOfPacket $ rdStatusError descriptor then throwM $ userError "Multi-segment packets are not supported."
