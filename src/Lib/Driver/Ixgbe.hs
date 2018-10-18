@@ -200,7 +200,7 @@ initRx numRx = do
            -- Setup buffers for descriptors.
            -- Unlike the original implementation we identity map buffers to descriptors
            -- and do not change this anymore.
-           let size = assert (numRxQueueEntries .&. (numRxQueueEntries - 1) /= 0) (numRxQueueEntries * 2048)
+           let size = assert (numRxQueueEntries .&. (numRxQueueEntries - 1) == 0) (numRxQueueEntries * 2048)
             in do bufPtr <- allocateRaw size False
                   -- Again, look at how the descriptor vector in initQueue is generated to
                   -- understand this.
@@ -287,7 +287,7 @@ initTx numTx = do
 
                  -- Setup buffers for descriptors.
                  -- This differs from ixy.
-                 let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) /= 0) (numTxQueueEntries * 2048)
+                 let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) == 0) (numTxQueueEntries * 2048)
                   in do bufPtr <- allocateRaw (numTxQueueEntries * 2048) False
                         let bufPtrs = Storable.generate (2 * (numTxQueueEntries - 1)) (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
                         -- Tx starts out empty.
