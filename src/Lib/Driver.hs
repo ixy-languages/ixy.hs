@@ -10,30 +10,22 @@
 -- Description
 --
 module Lib.Driver
-  ( Driver(..)
-  , Statistics(..)
-  , SendResult(..)
+  ( QueueId(QueueId)
+  , Device(..)
+  , Stats(..)
   )
 where
 
 import           Lib.Prelude
-import           Lib.Pci
 
-import           Control.Monad.Catch
-import           Control.Monad.Logger           ( MonadLogger )
 import qualified Data.Vector                   as V
 
-class Driver a where
-  init :: (MonadCatch m, MonadThrow m, MonadIO m, MonadLogger m) => BusDeviceFunction -> Int -> Int -> m a
-  stats :: (MonadIO m, MonadReader a m) => m Statistics
-  setPromiscuous :: (MonadIO m, MonadReader a m, MonadLogger m) => Bool -> m ()
-  receive :: (MonadThrow m, MonadIO m, MonadState a m, MonadLogger m) => Int -> Int -> m [ByteString]
-  send :: (MonadThrow m, MonadIO m, MonadState a m, MonadLogger m) => Int -> V.Vector ByteString -> m SendResult
+newtype QueueId = QueueId Int
 
-data SendResult = Done | Partial (V.Vector ByteString) | Fail Text
+data Device = Device { send :: QueueId -> V.Vector ByteString -> IO (Either (V.Vector ByteString) ())
+                     , receive :: QueueId -> Int -> IO (V.Vector ByteString)
+                     , stats :: IO Stats
+                     , setPromisc :: Bool -> IO ()}
 
-data Statistics = Statistics { stRxPackets :: Int
-                             , stTxPackets :: Int
-                             , stRxBytes :: Int
-                             , stTxBytes :: Int
-                             } deriving (Show)
+data Stats = Stats {stRxPkts :: Int
+                   , stTxPkts :: Int} deriving (Show)

@@ -4,6 +4,7 @@ module Main where
 
 import           Lib
 
+import Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Data.ByteString.Builder
@@ -22,8 +23,8 @@ main = runStdoutLoggingT (runApp run)
 run :: App ()
 run = do
   dev1 <- fromJust <$> newDriver "0000:02:00.0" 1 1
-  dev2 <- fromJust <$> newDriver "0000:02:00.1" 1 1
-  loop dev1 dev2
+  -- dev2 <- fromJust <$> newDriver "0000:02:00.1" 1 1
+  loop dev1
 
   -- readPackets dev
  -- where
@@ -39,29 +40,33 @@ run = do
   --       else return ()
   --   )
 
-loop :: Device -> Device -> App ()
-loop dev1 dev2 = do
-  devRefs <- liftIO $ newIORef ((dev1, dev2) :: (Device, Device))
-  forever $ do
-    devices  <- liftIO $ readIORef devRefs
-    devices' <- execStateT forward devices
-    liftIO $ writeIORef devRefs devices'
+-- loop :: Device -> Device -> App ()
+-- loop dev1 dev2 = do
+--   devRefs <- liftIO $ newIORef ((dev1, dev2) :: (Device, Device))
+--   forever $ do
+--     devices  <- liftIO $ readIORef devRefs
+--     devices' <- execStateT forward devices
+--     liftIO $ writeIORef devRefs devices'
 
+loop :: Device -> App ()
+loop dev = forever $ do pkts <- liftIO $ (receive dev) (QueueId 0) 32
+                        let b = map (toLazyByteString . byteStringHex) pkts
+                         in Control.Monad.when (not $ null b) (liftIO $ putStrLn (show b :: Text))
 
-forward :: StateT (Device, Device) App ()
-forward = do
-  (rxDev, txDev ) <- get
-  (pkts , rxDev') <- runStateT (receive 0 32) rxDev
-  if not (null pkts)
-    then do
-      -- $(logDebug)
-      --   $  "["
-      --   <> unBusDeviceFunction (_devBdf rxDev)
-      --   <> " -> "
-      --   <> unBusDeviceFunction (_devBdf txDev)
-      --   <> "] Forwarding packets..."
-      txDev' <- execStateT (send 0 pkts) txDev
-      txStat <- runReaderT stats txDev
-      $(logDebug) $ show txStat
-      put (rxDev', txDev')
-    else put (rxDev', txDev)
+-- forward :: StateT (Device, Device) App ()
+-- forward = do
+--   (rxDev, txDev ) <- get
+--   (pkts , rxDev') <- runStateT (receive 0 32) rxDev
+--   if not (null pkts)
+--     then do
+--       -- $(logDebug)
+--       --   $  "["
+--       --   <> unBusDeviceFunction (_devBdf rxDev)
+--       --   <> " -> "
+--       --   <> unBusDeviceFunction (_devBdf txDev)
+--       --   <> "] Forwarding packets..."
+--       txDev' <- execStateT (send 0 pkts) txDev
+--       txStat <- runReaderT stats txDev
+--       $(logDebug) $ show txStat
+--       put (rxDev', txDev')
+--     else put (rxDev', txDev)

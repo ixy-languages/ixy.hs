@@ -20,11 +20,15 @@ module Lib.Driver.Ixgbe.Types
   , RxQueue(..)
   , rxqDescriptors
   , rxqBuffers
+  , rxqIndex
+  , rxqShift
   , TxQueue(..)
   , txqDescriptors
   , txqBuffers
   , txqCleanIndex
   , txqIndex
+  , txqShift
+  , txqCleanShift
   , ReceiveDescriptor(..)
   , TransmitDescriptor(..)
   , LinkSpeed(..)
@@ -89,18 +93,18 @@ splice i n v =
   let toEnd = Storable.length v - i - 1
   in  Storable.slice i toEnd v Storable.++ Storable.slice 0 (n - toEnd) v
 
-
 data RxQueue = RxQueue { _rxqDescriptors :: Storable.Vector (Ptr ReceiveDescriptor)
-                       , _rxqBuffers :: Storable.Vector (Ptr Word8)}
-
-
+                       , _rxqBuffers :: Storable.Vector (Ptr Word8)
+                       , _rxqIndex :: IO Int
+                       , _rxqShift :: Int -> IO ()}
 makeLenses ''RxQueue
 
 data TxQueue = TxQueue { _txqDescriptors :: Storable.Vector (Ptr TransmitDescriptor)
                        , _txqBuffers :: Storable.Vector (Ptr Word8)
-                       , _txqCleanIndex :: Int
-                       , _txqIndex :: Int
-                       }
+                       , _txqIndex :: IO Int
+                       , _txqCleanIndex :: IO Int
+                       , _txqShift :: Int -> IO ()
+                       , _txqCleanShift :: Int -> IO ()}
 makeLenses ''TxQueue
 
 data Device = Device { _devBase :: Ptr Word32
