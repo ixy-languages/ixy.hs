@@ -159,7 +159,7 @@ init bdf numRx numTx = do
       cleanIndex' <- clean curIndex cleanIndex queue
       let
         len = V.length bufs
-        n   = min (abs (curIndex - cleanIndex')) len
+        n   = min (numTxQueueEntries - curIndex - cleanIndex') len
         -- Not very nice to convert here, but zipWithM has problematic signature.
         descPtrs =
           V.convert $ Storable.slice curIndex n (queue ^. txqDescriptors)
