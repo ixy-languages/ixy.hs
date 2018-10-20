@@ -167,7 +167,7 @@ init bdf numRx numTx = do
       V.mapM_ writeDescriptor $ V.zip3 bufs descPtrs bufPtrs
       -- Advance tail pointer.
       liftIO $ (queue ^. txqShift) n
-      liftIO $ (queue ^. txqCleanShift) n
+      liftIO $ (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
       newIndex <- liftIO $ queue ^. txqIndex
       runReaderT (R.set (R.RDT id) $ fromIntegral newIndex) dev
       if n /= len
