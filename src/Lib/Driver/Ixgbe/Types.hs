@@ -32,7 +32,6 @@ module Lib.Driver.Ixgbe.Types
   , ReceiveDescriptor(..)
   , TransmitDescriptor(..)
   , LinkSpeed(..)
-  , splice
   )
 where
 
@@ -86,12 +85,6 @@ instance Storable TransmitDescriptor where
     poke (castPtr ptr) $ tdBufAddr tdesc
     pokeByteOff ptr (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc
     pokeByteOff ptr (sizeOf (0 :: Word64) + sizeOf (0 :: Word32)) $ tdOlInfoStatus tdesc
-
-splice :: Storable a => Int -> Int -> Storable.Vector a -> Storable.Vector a
-splice i n v | (i + n) < Storable.length v = Storable.slice i n v
-splice i n v =
-  let toEnd = Storable.length v - i - 1
-  in  Storable.slice i toEnd v Storable.++ Storable.slice 0 (n - toEnd) v
 
 data RxQueue = RxQueue { _rxqDescriptors :: Storable.Vector (Ptr ReceiveDescriptor)
                        , _rxqBuffers :: Storable.Vector (Ptr Word8)
