@@ -334,7 +334,7 @@ initRx numRx = do
                         (sizeOf (undefined :: ReceiveDescriptor))
                         (numRxQueueEntries - 1)
           )
-        len    = numRxQueueEntries `quot` 2
+        len    = numRxQueueEntries
         fIndex = readIORef indexRef
         fShift n = modifyIORef indexRef (\current -> (current + n) `mod` len)
     startRxQueue
@@ -456,7 +456,7 @@ initTx numTx = do
                         (sizeOf (undefined :: TransmitDescriptor))
                         (numTxQueueEntries - 1)
           )
-        len    = numTxQueueEntries `quot` 2
+        len    = numTxQueueEntries
         fIndex = readIORef indexRef
         fClean = readIORef cleanRef
         fShift n = modifyIORef indexRef (+ n `mod` len)
