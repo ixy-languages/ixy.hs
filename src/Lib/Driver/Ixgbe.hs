@@ -169,7 +169,7 @@ init bdf numRx numTx = do
       liftIO $ (queue ^. txqShift) n
       liftIO $ (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
       newIndex <- liftIO $ queue ^. txqIndex
-      runReaderT (R.set (R.RDT id) $ fromIntegral newIndex) dev
+      runReaderT (R.set (R.TDT id) $ fromIntegral newIndex) dev
       if n /= len
         then return $ Left (V.drop (len - n) bufs)
         else return $ Right ()
@@ -488,15 +488,16 @@ initTx numTx = do
       let bufPtrs = Storable.generate
             (2 * numTxQueueEntries)
             (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
-      -- Tx starts out empty.
-      R.set (R.TDH id) 0
-      R.set (R.RDT id) 0
 
       -- Enable queue and wait.
       R.setMask (R.TXDCTL id) txdctlEnable
       R.dumpRegisters
       -- TODO: Find out why this wait call blocks the whole app.
       R.waitSet (R.TXDCTL id) txdctlEnable
+
+      -- Tx starts out empty.
+      R.set (R.TDH id) 0
+      R.set (R.TDT id) 0
 
       return $ queue & txqBuffers .~ bufPtrs
       where txdctlEnable = 0x2000000
