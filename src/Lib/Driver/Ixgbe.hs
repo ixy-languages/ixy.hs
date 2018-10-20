@@ -71,7 +71,7 @@ init bdf numRx numTx = do
       }
   return $ Driver.Device
     { Driver.receive    = receive dev
-    , Driver.send       = undefined
+    , Driver.send       = send dev
     , Driver.setPromisc = setPromisc dev
     , Driver.stats      = stats dev
     }
