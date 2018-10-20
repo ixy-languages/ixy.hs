@@ -200,7 +200,7 @@ init bdf numRx numTx = do
         descExt            = 0x20000000
         advDesc            = 0x300000
     clean curIndex cleanIndex queue = do
-      let cleanAmount = assert (curIndex > cleanIndex) (curIndex - cleanIndex)
+      let cleanAmount = assert (curIndex >= cleanIndex) (curIndex - cleanIndex)
       if cleanAmount < txCleanBatch
         then return cleanIndex
         else do
