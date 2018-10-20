@@ -404,9 +404,7 @@ initTx numTx = do
   R.set R.DMATXCTL dmaTxEnable
 
   -- Do per-queue configuration.
-  txQueues <- mapM initQueue [0 .. (numTx - 1)]
-
-  return txQueues
+  mapM initQueue [0 .. (numTx - 1)]
  where
   dmaTxEnable    = 0x1
   arbiterDisable = 0x40
@@ -491,8 +489,6 @@ initTx numTx = do
 
       -- Enable queue and wait.
       R.setMask (R.TXDCTL id) txdctlEnable
-      R.dumpRegisters
-      -- TODO: Find out why this wait call blocks the whole app.
       R.waitSet (R.TXDCTL id) txdctlEnable
 
       -- Tx starts out empty.
