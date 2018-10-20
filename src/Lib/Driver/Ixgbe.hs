@@ -321,11 +321,12 @@ initTx numTx = do
   R.set R.DTXMXSZRQ 0xFFFF
   R.clearMask R.RTTDCS arbiterDisable
 
+  -- Enable DMA.
+  -- NB: This MUST be done, before enabling any queue, otherwise the queue just won't enable.
+  R.set R.DMATXCTL dmaTxEnable
+
   -- Do per-queue configuration.
   txQueues <- mapM initQueue [0 .. (numTx - 1)]
-
-  -- Enable DMA.
-  R.set R.DMATXCTL dmaTxEnable
 
   return txQueues
  where
@@ -417,7 +418,7 @@ initTx numTx = do
       R.setMask (R.TXDCTL id) txdctlEnable
       R.dumpRegisters
       -- TODO: Find out why this wait call blocks the whole app.
-      --R.waitSet (R.TXDCTL id) txdctlEnable
+      R.waitSet (R.TXDCTL id) txdctlEnable
 
       return $ queue & txqBuffers .~ bufPtrs
       where txdctlEnable = 0x2000000
