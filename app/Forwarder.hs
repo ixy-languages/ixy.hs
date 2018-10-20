@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main where
 
@@ -7,13 +6,9 @@ import           Lib
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.Logger
-import           Data.ByteString.Builder
-import qualified Data.ByteString.Char8         as BC
-import           Data.IORef
 import           Data.Maybe
-import qualified Data.Text                     as T
+import qualified Data.Vector                   as V
 import           Protolude
-import           System.Posix.Unistd            ( usleep )
 
 newtype App a = App { runApp :: LoggingT IO a } deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadLogger)
 
@@ -35,6 +30,9 @@ forward :: Device -> Device -> App ()
 forward rxDev txDev = do
   pkts   <- liftIO $ receive rxDev (QueueId 0) 64
   result <- liftIO $ send txDev (QueueId 0) pkts
-  case result of
-    Left  _ -> liftIO $ putStrLn ("Some packets were ignored." :: Text)
-    Right _ -> liftIO $ putStrLn ("All packets were sent." :: Text)
+  unless
+    (V.null pkts)
+    (case result of
+      Left  _ -> liftIO $ putStrLn ("Some packets were ignored." :: Text)
+      Right _ -> liftIO $ putStrLn ("All packets were sent." :: Text)
+    )
