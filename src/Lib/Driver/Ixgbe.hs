@@ -12,7 +12,8 @@
 --
 
 module Lib.Driver.Ixgbe
-  ()
+  ( init
+  )
 where
 
 import qualified Lib.Driver                    as Driver
@@ -65,61 +66,96 @@ init bdf numRx numTx = do
       }
   return $ Driver.Device
     { Driver.receive    = receive dev
+    , Driver.send       = undefined
     , Driver.setPromisc = setPromisc dev
     , Driver.stats      = stats dev
     }
--- where inner = do dev <- get
---                  runReaderT (do reset
---                                 R.waitSet R.EEC autoReadDone
---                                 R.waitSet R.RDRXCTL dmaInitCycleDone
---                                 initLink) dev
---                  _ <- liftIO $ stats dev
---                  rxQueues <- runReaderT (initRx numRx) dev
---                  txQueues <- runReaderT (initTx numTx) dev
---                  put $ dev & devRxQueues .~ V.fromList rxQueues & devTxQueues .~ V.fromList txQueues
---                  liftIO $ setPromisc dev True
---                  runReaderT (waitForLink 1000) dev
---        where dmaInitCycleDone = 0x8
---              autoReadDone = 0x200
---              reset = do R.set R.EIMC disableInterrupt
---                         R.set R.CTRL resetMask
---                         R.waitClear R.CTRL resetMask
---                         R.set R.EIMC disableInterrupt
---               where resetMask = 0x4000008
---                     disableInterrupt = 0x7FFFFFFF
---              initLink = R.setMask R.AUTOC anRestart where anRestart = 0x1000
---       receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
---       receive dev (Driver.QueueId id) batchSize = case (dev ^. devRxQueues) V.!? id of
---                                                     Just queue -> inner dev queue
---                                                     Nothing -> return V.empty
---        where inner dev queue = do curIndex <- queue ^. rxqIndex
---                                   let descPtrs = Storable.slice curIndex batchSize (queue ^. rxqDescriptors)
---                                       bufPtrs = Storable.slice curIndex batchSize (queue ^. rxqBuffers)
---                                    in do pkts <- V.zipWithM readPackets (V.convert descPtrs) (V.convert bufPtrs)
---                                          liftIO $ (queue ^. rxqShift) $ V.length pkts
---                                          nextIndex <- queue ^. rxqIndex
---                                          runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev
---                                          return $ V.mapMaybe identity pkts
---              readPackets descPtr bufPtr = do descriptor <- liftIO $ peek descPtr
---                                              if isDone $ rdStatusError descriptor then
---                                                                                   if not $ isEndOfPacket $ rdStatusError descriptor then throwM $ userError "Multi-segment packets are not supported."
---                                                                                                                                     else let len = fromIntegral $ rdLength descriptor
---                                                                                                                                           in do bufPhysAddr <- translate bufPtr
---                                                                                                                                                 liftIO $ poke descPtr ReadRx {rdPacketAddr=bufPhysAddr, rdHeaderAddr=0}
---                                                                                                                                                 buffer <- liftIO $ peekArray len bufPtr
---                                                                                                                                                 return $ Just (B.pack buffer)
---                                                                                   else return Nothing
---               where isDone = flip testBit 0
---                     isEndOfPacket = flip testBit 1
---       stats :: Device -> IO Driver.Stats
---       stats = runReaderT (do rxPkts <- R.get R.GPRC
---                              txPkts <- R.get R.GPTC
---                              return Driver.Stats {Driver.stRxPkts=fromIntegral rxPkts, Driver.stTxPkts=fromIntegral txPkts}) 
+ where
+  inner = do
+    dev <- get
+    runReaderT
+      (do
+        reset
+        R.waitSet R.EEC autoReadDone
+        R.waitSet R.RDRXCTL dmaInitCycleDone
+        initLink
+      )
+      dev
+    _        <- liftIO $ stats dev
+    rxQueues <- runReaderT (initRx numRx) dev
+    txQueues <- runReaderT (initTx numTx) dev
+    put
+      $  dev
+      &  devRxQueues
+      .~ V.fromList rxQueues
+      &  devTxQueues
+      .~ V.fromList txQueues
+    liftIO $ setPromisc dev True
+    runReaderT (waitForLink 1000) dev
+   where
+    dmaInitCycleDone = 0x8
+    autoReadDone     = 0x200
+    reset            = do
+      R.set R.EIMC disableInterrupt
+      R.set R.CTRL resetMask
+      R.waitClear R.CTRL resetMask
+      R.set R.EIMC disableInterrupt
+     where
+      resetMask        = 0x4000008
+      disableInterrupt = 0x7FFFFFFF
+    initLink = R.setMask R.AUTOC anRestart where anRestart = 0x1000
+  receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
+  receive dev (Driver.QueueId id) batchSize =
+    case (dev ^. devRxQueues) V.!? id of
+      Just queue -> inner dev queue
+      Nothing    -> return V.empty
+   where
+    inner dev queue = do
+      curIndex <- queue ^. rxqIndex
+      let descPtrs =
+            Storable.slice curIndex batchSize (queue ^. rxqDescriptors)
+          bufPtrs = Storable.slice curIndex batchSize (queue ^. rxqBuffers)
+      pkts <- V.zipWithM readPackets (V.convert descPtrs) (V.convert bufPtrs)
+      liftIO $ (queue ^. rxqShift) $ V.length pkts
+      nextIndex <- queue ^. rxqIndex
+      runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev
+      return $ V.mapMaybe identity pkts
+    readPackets descPtr bufPtr = do
+      descriptor <- liftIO $ peek descPtr
+      if isDone $ rdStatusError descriptor
+        then if not $ isEndOfPacket $ rdStatusError descriptor
+          then throwM $ userError "Multi-segment packets are not supported."
+          else do
+            let len = fromIntegral $ rdLength descriptor
+            bufPhysAddr <- translate bufPtr
+            liftIO $ poke
+              descPtr
+              ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
+            buffer <- liftIO $ peekArray len bufPtr
+            return $ Just (B.pack buffer)
+        else return Nothing
+     where
+      isDone        = flip testBit 0
+      isEndOfPacket = flip testBit 1
+  stats :: Device -> IO Driver.Stats
+  stats = runReaderT
+    (do
+      rxPkts <- R.get R.GPRC
+      txPkts <- R.get R.GPTC
+      return Driver.Stats
+        { Driver.stRxPkts = fromIntegral rxPkts
+        , Driver.stTxPkts = fromIntegral txPkts
+        }
+    )
 
---       setPromisc :: Device -> Bool -> IO ()
---       setPromisc dev flag = runReaderT (if flag then R.setMask R.FCTRL promiscEnable
---                                                 else R.clearMask R.FCTRL promiscEnable) dev
---        where promiscEnable = 0x300
+  setPromisc :: Device -> Bool -> IO ()
+  setPromisc dev flag = runReaderT
+    (if flag
+      then R.setMask R.FCTRL promiscEnable
+      else R.clearMask R.FCTRL promiscEnable
+    )
+    dev
+    where promiscEnable = 0x300
 
 initRx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
