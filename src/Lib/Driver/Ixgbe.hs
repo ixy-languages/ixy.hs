@@ -74,6 +74,7 @@ init bdf numRx numTx = do
     , Driver.send       = send dev
     , Driver.setPromisc = setPromisc dev
     , Driver.stats      = stats dev
+    , Driver.dump       = dump dev
     }
  where
   inner = do
@@ -234,6 +235,11 @@ init bdf numRx numTx = do
     )
     dev
     where promiscEnable = 0x300
+
+  dump :: Device -> IO Text
+  dump dev = do
+    output <- runReaderT R.dumpRegisters dev
+    return $ foldr (<>) "" output
 
 initRx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)

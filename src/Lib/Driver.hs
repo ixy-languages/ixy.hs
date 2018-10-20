@@ -25,7 +25,8 @@ newtype QueueId = QueueId Int
 data Device = Device { send :: QueueId -> V.Vector ByteString -> IO (Either (V.Vector ByteString) ())
                      , receive :: QueueId -> Int -> IO (V.Vector ByteString)
                      , stats :: IO Stats
-                     , setPromisc :: Bool -> IO ()}
+                     , setPromisc :: Bool -> IO ()
+                     , dump :: IO Text }
 
 data Stats = Stats {stRxPkts :: Int
                    , stTxPkts :: Int} deriving (Show)

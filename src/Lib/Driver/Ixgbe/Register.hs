@@ -239,11 +239,11 @@ waitSet register mask = waitUntil register mask (== mask)
 waitClear :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 waitClear register mask = waitUntil register mask (== 0)
 
-dumpRegisters :: (MonadIO m, MonadReader Device m, MonadLogger m) => m ()
-dumpRegisters = do
-  $(logDebug) "Dumping all registers."
-  forM_ [0, 0x2 .. 0xE000] (printRegister . toEnum)
+dumpRegisters :: (MonadIO m, MonadReader Device m) => m [Text]
+dumpRegisters = forM [0, 0x2 .. 0xE000] (showRegister . toEnum)
  where
-  printRegister register = when (register /= UNDEFINED) $ do
-    current <- get register
-    $(logDebug) $ show register <> ": 0x" <> T.pack (showHex current "")
+  showRegister register = if register /= UNDEFINED
+    then do
+      current <- get register
+      return $ show register <> ": " <> T.pack (showHex current "") <> "\n"
+    else return ""
