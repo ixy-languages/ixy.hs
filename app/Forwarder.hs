@@ -37,4 +37,4 @@ forward rxDev txDev = do
   result <- liftIO $ send txDev (QueueId 0) pkts
   case result of
     Left  _ -> liftIO $ putStrLn ("Some packets were ignored." :: Text)
-    Right _ -> return ()
+    Right _ -> liftIO $ putStrLn ("All packets were sent." :: Text)
