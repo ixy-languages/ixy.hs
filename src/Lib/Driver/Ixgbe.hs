@@ -487,14 +487,13 @@ initTx numTx = do
             (2 * numTxQueueEntries)
             (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
 
+      -- Tx starts out empty.
+      R.set (R.TDH id) 0
+      R.set (R.TDT id) 0
+
       -- Enable queue and wait.
       R.setMask (R.TXDCTL id) txdctlEnable
       R.waitSet (R.TXDCTL id) txdctlEnable
-
-      -- Tx starts out empty.
-      R.set (R.TDH id) 0
-      R.set (R.TDT id) 1
-      R.dumpRegisters
 
       return $ queue & txqBuffers .~ bufPtrs
       where txdctlEnable = 0x2000000
