@@ -34,9 +34,11 @@ import           Data.Bits                      ( (.&.)
                                                 , (.|.)
                                                 , complement
                                                 )
+import qualified Data.Text                     as T
 import           Foreign.Storable               ( peekByteOff
                                                 , pokeByteOff
                                                 )
+import           Numeric                        ( showHex )
 import           System.Posix.Unistd            ( usleep )
 
 data Register
@@ -238,9 +240,10 @@ waitClear :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 waitClear register mask = waitUntil register mask (== 0)
 
 dumpRegisters :: (MonadIO m, MonadReader Device m, MonadLogger m) => m ()
-dumpRegisters = forM_
-  [0, 0x2 .. 0xE000]
-  (\addr -> do
-    value <- get (toEnum addr)
-    $(logDebug) $ show addr <> ": " <> show value
-  )
+dumpRegisters = do
+  $(logDebug) "Dumping all registers."
+  forM_ [0, 0x2 .. 0xE000] (printRegister . toEnum)
+ where
+  printRegister register = when (register /= UNDEFINED) $ do
+    current <- get register
+    $(logDebug) $ show register <> ": 0x" <> T.pack (showHex current "")
