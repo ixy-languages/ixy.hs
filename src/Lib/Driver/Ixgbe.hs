@@ -493,7 +493,8 @@ initTx numTx = do
 
       -- Tx starts out empty.
       R.set (R.TDH id) 0
-      R.set (R.TDT id) 0
+      R.set (R.TDT id) 1
+      R.dumpRegisters
 
       return $ queue & txqBuffers .~ bufPtrs
       where txdctlEnable = 0x2000000
