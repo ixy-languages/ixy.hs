@@ -328,31 +328,30 @@ initRx numRx = do
     -- We essentially generate two copies of the descriptor vector and append it.
     -- So we can slice from the vector without weird wrapping action and the vector is
     -- immutable anyway.
-    let descPtrs = Storable.generate
-          (2 * numRxQueueEntries)
-          (generatePtrs descPtr
-                        (sizeOf (undefined :: ReceiveDescriptor))
-                        (numRxQueueEntries - 1)
-          )
-        len    = numRxQueueEntries
-        fIndex = readIORef indexRef
-        fShift n = modifyIORef indexRef (\current -> (current + n) `mod` len)
-    startRxQueue
-      id
-      RxQueue
-        { _rxqDescriptors = descPtrs
-        , _rxqBuffers     = undefined
-        , _rxqIndex       = fIndex
-        , _rxqShift       = fShift
-        }
+    let
+      descPtrs = Storable.generate
+        (2 * numRxQueueEntries)
+        (generatePtrs descPtr
+                      (sizeOf (undefined :: ReceiveDescriptor))
+                      (numRxQueueEntries - 1)
+        )
+      fIndex = readIORef indexRef
+      fShift n = modifyIORef
+        indexRef
+        (\current -> (current + n) `mod` numRxQueueEntries)
+    startRxQueue RxQueue
+      { _rxqDescriptors = descPtrs
+      , _rxqBuffers     = undefined
+      , _rxqIndex       = fIndex
+      , _rxqShift       = fShift
+      }
    where
     dropEnable = 0x10000000
     startRxQueue
       :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-      => Int
-      -> RxQueue
+      => RxQueue
       -> m RxQueue
-    startRxQueue id queue = do
+    startRxQueue queue = do
       deviceId <- showDeviceId
       $(logDebug) $ deviceId <> " Starting rx queue " <> show id <> "."
 
@@ -370,6 +369,7 @@ initRx numRx = do
             (generatePtrs bufPtr 2048 (numRxQueueEntries - 1))
           descPtrs = queue ^. rxqDescriptors
       Storable.zipWithM_ writeDescriptor descPtrs bufPtrs
+
       -- Enable queue and wait.
       R.setMask (R.RXDCTL id) rxdctlEnable
       R.waitSet (R.RXDCTL id) rxdctlEnable
@@ -450,37 +450,38 @@ initTx numTx = do
     -- Setup TxQueue.
     indexRef <- liftIO $ newIORef (0 :: Int)
     cleanRef <- liftIO $ newIORef (0 :: Int)
-    let descPtrs = Storable.generate
-          (2 * numTxQueueEntries)
-          (generatePtrs descPtr
-                        (sizeOf (undefined :: TransmitDescriptor))
-                        (numTxQueueEntries - 1)
-          )
-        len    = numTxQueueEntries
-        fIndex = readIORef indexRef
-        fClean = readIORef cleanRef
-        fShift n = modifyIORef indexRef (+ n `mod` len)
-        fCleanShift n = modifyIORef indexRef (+ n `mod` len)
-    startTxQueue
-      id
-      TxQueue
-        { _txqDescriptors = descPtrs
-        , _txqBuffers     = undefined
-        , _txqIndex       = fIndex
-        , _txqCleanIndex  = fClean
-        , _txqShift       = fShift
-        , _txqCleanShift  = fCleanShift
-        }
+    let
+      descPtrs = Storable.generate
+        (2 * numTxQueueEntries)
+        (generatePtrs descPtr
+                      (sizeOf (undefined :: TransmitDescriptor))
+                      (numTxQueueEntries - 1)
+        )
+      fIndex = readIORef indexRef
+      fClean = readIORef cleanRef
+      fShift n = modifyIORef
+        indexRef
+        (\current -> (current + n) `mod` numTxQueueEntries)
+      fCleanShift n = modifyIORef
+        indexRef
+        (\current -> (current + n) `mod` numTxQueueEntries)
+    startTxQueue TxQueue
+      { _txqDescriptors = descPtrs
+      , _txqBuffers     = undefined
+      , _txqIndex       = fIndex
+      , _txqCleanIndex  = fClean
+      , _txqShift       = fShift
+      , _txqCleanShift  = fCleanShift
+      }
    where
     wbMagic =
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
         . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
     startTxQueue
       :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-      => Int
-      -> TxQueue
+      => TxQueue
       -> m TxQueue
-    startTxQueue id queue = do
+    startTxQueue queue = do
       deviceId <- showDeviceId
       $(logDebug) $ deviceId <> " Starting tx queue " <> show id <> "."
 

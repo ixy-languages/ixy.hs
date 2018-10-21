@@ -137,9 +137,9 @@ instance Enum Register where
     toEnum 0x042A0 = AUTOC
     toEnum 0x02F00 = RDRXCTL
     toEnum v
-        | v >= 0x03C00 && v <= 0x03C1C = RXPBSIZE ((v - 0x03C00) `quot` 4)
+      | v >= 0x03C00 && v <= 0x03C1C && v `mod` 0x4 == 0 = RXPBSIZE ((v - 0x03C00) `quot` 4)
     toEnum v
-        | v >= 0x0CC00 && v <= 0xCC1C = TXPBSIZE ((v - 0x0CC00) `quot` 4)
+      | v >= 0x0CC00 && v <= 0xCC1C && v `mod` 0x4 == 0 = TXPBSIZE ((v - 0x0CC00) `quot` 4)
     toEnum 0x04240 = HLREG0
     toEnum 0x03000 = RXCTRL
     toEnum 0x05080 = FCTRL
