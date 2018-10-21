@@ -43,26 +43,30 @@ import           Foreign.Storable               ( sizeOf
 import           System.IO.Error                ( userError )
 import           System.Posix.Unistd            ( usleep )
 
+-- | The number of descriptors a rx queue manages.
 numRxQueueEntries :: Int
 numRxQueueEntries = 512
 
+-- | The number of descriptors a tx queue manages.
 numTxQueueEntries :: Int
 numTxQueueEntries = 512
 
+-- | The minimum amount of transmit descriptors to clean in one go.
 txCleanBatch :: Int
 txCleanBatch = 32
 
+-- | Initializes a IXGBE NIC and returns a 'Driver'.
 init
   :: (MonadCatch m, MonadThrow m, MonadIO m, MonadLogger m)
-  => BusDeviceFunction
-  -> Int
-  -> Int
+  => BusDeviceFunction -- ^ The 'BusDeviceFunction' of the IXGBE NIC.
+  -> Int -- ^ The number of rx queues that will be initialized.
+  -> Int -- ^ The number of tx queues that will be initialized.
   -> m Driver.Device
 init bdf numRx numTx = do
   $(logInfo) $ "Initializing device " <> unBusDeviceFunction bdf <> "."
   ptr      <- mapResource bdf "resource0"
   (_, dev) <- runStateT
-    inner
+    go
     Device
       { _devBase     = ptr
       , _devBdf      = bdf
@@ -77,7 +81,7 @@ init bdf numRx numTx = do
     , Driver.dump       = dump dev
     }
  where
-  inner = do
+  go = do
     dev <- get
     runReaderT
       (do
@@ -114,10 +118,10 @@ init bdf numRx numTx = do
   receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
   receive dev (Driver.QueueId id) batchSize =
     case (dev ^. devRxQueues) V.!? id of
-      Just queue -> inner dev queue
+      Just queue -> inner queue
       Nothing    -> return V.empty
    where
-    inner dev queue = do
+    inner queue = do
       curIndex <- queue ^. rxqIndex
       let descPtrs =
             Storable.slice curIndex batchSize (queue ^. rxqDescriptors)
@@ -241,10 +245,11 @@ init bdf numRx numTx = do
     output <- runReaderT R.dumpRegisters dev
     return $ foldr (<>) "" output
 
+-- | Initialize a number of rx queues.
 initRx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-  => Int
-  -> m [RxQueue]
+  => Int -- ^ The amount of queues that will be initialized.
+  -> m [RxQueue] -- ^ The initialized queues.
 initRx numRx = do
   deviceId <- showDeviceId
   $(logInfo) $ deviceId <> " Initializing " <> show numRx <> " rx queues."
@@ -300,8 +305,7 @@ initRx numRx = do
     R.setMask (R.SRRCTL id) dropEnable
 
     let size = numRxQueueEntries * sizeOf (undefined :: ReceiveDescriptor)
-    descPtr <- allocateRaw size True
-    liftIO $ fillBytes descPtr 0xFF size
+    descPtr  <- allocateDescriptors size
 
     -- Setup descriptor ring.
     physAddr <- translate descPtr
@@ -386,10 +390,11 @@ initRx numRx = do
         liftIO
           $ poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
 
+-- | Initialize a number of tx queues.
 initTx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-  => Int
-  -> m [TxQueue]
+  => Int -- ^ The amount of tx queues that will be initialized.
+  -> m [TxQueue] -- ^ The initialized tx queues.
 initTx numTx = do
   deviceId <- showDeviceId
   $(logInfo) $ deviceId <> " Initializing " <> show numTx <> " tx queues."
@@ -426,8 +431,7 @@ initTx numTx = do
 
     -- Setup descriptor ring.
     let size = numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor)
-    descPtr <- allocateRaw size True
-    liftIO $ fillBytes descPtr 0xFF size
+    descPtr  <- allocateDescriptors size
 
     physAddr <- translate descPtr
     R.set (R.TDBAL id) $ fromIntegral (physAddr .&. 0xFFFFFFFF)
@@ -505,6 +509,10 @@ initTx numTx = do
       return $ queue & txqBuffers .~ bufPtrs
       where txdctlEnable = 0x2000000
 
+-- | Wait until the device has set up the link and the link speed is available,
+-- or until the maximum wait time is exceeded.
+-- 
+-- The function waits for 10ms after each try.
 waitForLink :: (MonadIO m, MonadReader Device m, MonadLogger m) => Int -> m ()
 waitForLink maxTries = do
   $(logDebug) "Waiting for link..."
@@ -522,6 +530,7 @@ waitForLink maxTries = do
       Link1G   -> $(logDebug) "Link speed was set to 1GBit/s"
       Link10G  -> $(logDebug) "Link speed was set to 10GBit/s"
 
+-- | Returns the link speed of the device as 'LinkSpeed'.
 linkSpeed :: (MonadIO m, MonadReader Device m) => m LinkSpeed
 linkSpeed = do
   links <- R.get R.LINKS
@@ -542,6 +551,11 @@ linkSpeed = do
   links1G    = 0x20000000
   links10G   = 0x30000000
 
+-- $ Helpers
+
+-- | Shows the device's 'BusDeviceFunction' in the form:
+--
+-- [BDF]
 showDeviceId :: (MonadReader Device m) => m Text
 showDeviceId = do
   dev <- ask
@@ -549,3 +563,10 @@ showDeviceId = do
 
 generatePtrs :: Ptr a -> Int -> Int -> Int -> Ptr a
 generatePtrs ptr offset num i = ptr `plusPtr` ((i `mod` num) * offset)
+
+allocateDescriptors
+  :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
+allocateDescriptors size = do
+  descPtr <- allocateRaw size True
+  liftIO $ fillBytes descPtr 0xFF size
+  return descPtr

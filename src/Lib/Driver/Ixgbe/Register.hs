@@ -29,7 +29,6 @@ import           Lib.Prelude             hiding ( get
 import           Lib.Driver.Ixgbe.Types
 
 import           Control.Lens            hiding ( set )
-import           Control.Monad.Logger
 import           Data.Bits                      ( (.&.)
                                                 , (.|.)
                                                 , complement
@@ -132,6 +131,7 @@ instance Enum Register where
     fromEnum DTXMXSZRQ = 0x08100
     fromEnum (TXPBSIZE i) = 0x0CC00 + (i * 4)
     fromEnum EEC = 0x10010
+    fromEnum UNDEFINED = 0xFFFFF
     toEnum 0x00888 = EIMC
     toEnum 0x00000 = CTRL
     toEnum 0x042A0 = AUTOC

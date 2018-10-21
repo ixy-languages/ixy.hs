@@ -11,30 +11,29 @@
 -- Description
 --
 module Lib
-  ( newDriver
-  , Driver.Device(..)
-  , devBdf
-  , unBusDeviceFunction
+  ( -- * Driver
+    Driver.Device(..)
+  , newDriver
   , Driver.QueueId(..)
   )
 where
 
 import qualified Lib.Driver                    as Driver
 import           Lib.Driver.Ixgbe
-import           Lib.Driver.Ixgbe.Types
-import           Lib.Pci                        ( busDeviceFunction
-                                                , unBusDeviceFunction
-                                                )
+import           Lib.Pci                        ( busDeviceFunction )
 import           Lib.Prelude
 
 import           Control.Monad.Catch
 import           Control.Monad.Logger           ( MonadLogger )
 
+-- | Initializes a driver for a device.
+--
+-- Currently only supports IXGBE.
 newDriver
   :: (MonadCatch m, MonadThrow m, MonadIO m, MonadLogger m)
-  => Text
-  -> Int
-  -> Int
+  => Text -- ^ The 'BusDeviceFunction' of the device.
+  -> Int -- ^ The number of rx queues to initialize.
+  -> Int -- ^ The number of tx queues to initialize.
   -> m (Maybe Driver.Device)
 newDriver bdfT numRx numTx = case busDeviceFunction bdfT of
   Just bdf -> do
