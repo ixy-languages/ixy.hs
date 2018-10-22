@@ -23,7 +23,9 @@ run = do
 
 loop :: Device -> Device -> App ()
 loop dev1 dev2 = forever $ do
+  liftIO $ putStrLn ("Dev1 -> Dev2" :: Text)
   forward dev1 dev2
+  liftIO $ putStrLn ("Dev2 -> Dev1" :: Text)
   forward dev2 dev1
 
 forward :: Device -> Device -> App ()
@@ -33,7 +35,7 @@ forward rxDev txDev = do
   unless
     (V.null pkts)
     (do
-      liftIO $ putStrLn =<< dump txDev
+      -- liftIO $ putStrLn =<< dump txDev
       case result of
         Left  _ -> liftIO $ putStrLn ("Some packets were ignored." :: Text)
         Right _ -> liftIO $ putStrLn ("All packets were sent." :: Text)
