@@ -29,6 +29,7 @@ import           Control.Monad.Catch
 import           Control.Monad.Logger
 import qualified Data.ByteString               as B
 import           Data.IORef
+import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Storable          as Storable
 import           Foreign.Marshal.Array          ( peekArray
@@ -40,6 +41,7 @@ import           Foreign.Storable               ( sizeOf
                                                 , peek
                                                 , poke
                                                 )
+import           Numeric                        ( showHex )
 import           System.IO.Error                ( userError )
 import           System.Posix.Unistd            ( usleep )
 
@@ -93,7 +95,12 @@ init bdf numRx numTx = do
       dev
     _        <- liftIO $ stats dev
     rxQueues <- runReaderT (initRx numRx) dev
-    txQueues <- runReaderT (initTx numTx) dev
+    txQueues <- runReaderT
+      (do
+        queues <- initTx numTx
+        mapM startTxQueue $ zip queues [0 ..]
+      )
+      dev
     put
       $  dev
       &  devRxQueues
@@ -320,7 +327,7 @@ initRx numRx = do
       <> " at "
       <> show descPtr
       <> "(phy="
-      <> show physAddr
+      <> T.pack (showHex physAddr "")
       <> ")."
 
     -- Set ring to empty at the start.
@@ -407,15 +414,18 @@ initTx numTx = do
   forM_ [1 .. 7] (\i -> R.set (R.TXPBSIZE i) 0)
 
   -- Required flags, when DCB/VTd are disabled.
+  R.setMask R.RTTDCS arbiterDisable
   R.set R.DTXMXSZRQ 0xFFFF
   R.clearMask R.RTTDCS arbiterDisable
+
+  -- Do per-queue configuration.
+  txQueues <- mapM initQueue [0 .. (numTx - 1)]
 
   -- Enable DMA.
   -- NB: This MUST be done, before enabling any queue, otherwise the queue just won't enable.
   R.set R.DMATXCTL dmaTxEnable
 
-  -- Do per-queue configuration.
-  mapM initQueue [0 .. (numTx - 1)]
+  return txQueues
  where
   dmaTxEnable    = 0x1
   arbiterDisable = 0x40
@@ -445,7 +455,7 @@ initTx numTx = do
       <> " at "
       <> show descPtr
       <> "(phy="
-      <> show physAddr
+      <> T.pack (showHex physAddr "")
       <> ")."
 
     -- Descriptor writeback magic values.
@@ -469,7 +479,7 @@ initTx numTx = do
       fCleanShift n = modifyIORef
         indexRef
         (\current -> (current + n) `mod` numTxQueueEntries)
-    startTxQueue TxQueue
+    return $ TxQueue
       { _txqDescriptors = descPtrs
       , _txqBuffers     = undefined
       , _txqIndex       = fIndex
@@ -481,33 +491,33 @@ initTx numTx = do
     wbMagic =
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
         . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
-    startTxQueue
-      :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-      => TxQueue
-      -> m TxQueue
-    startTxQueue queue = do
-      deviceId <- showDeviceId
-      $(logDebug) $ deviceId <> " Starting tx queue " <> show id <> "."
+startTxQueue
+  :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
+  => (TxQueue, Int)
+  -> m TxQueue
+startTxQueue (queue, id) = do
+  deviceId <- showDeviceId
+  $(logDebug) $ deviceId <> " Starting tx queue " <> show id <> "."
 
-      -- Setup buffers for descriptors.
-      -- This differs from ixy.
-      let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) == 0)
-                        (numTxQueueEntries * 2048)
-      bufPtr <- allocateRaw size False
-      let bufPtrs = Storable.generate
-            (2 * numTxQueueEntries)
-            (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
+  -- Setup buffers for descriptors.
+  -- This differs from ixy.
+  let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) == 0)
+                    (numTxQueueEntries * 2048)
+  bufPtr <- allocateRaw size False
+  let bufPtrs = Storable.generate
+        (2 * numTxQueueEntries)
+        (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
 
-      -- Tx starts out empty.
-      R.set (R.TDH id) 0
-      R.set (R.TDT id) 0
+  -- Tx starts out empty.
+  R.set (R.TDH id) 0
+  R.set (R.TDT id) 0
 
-      -- Enable queue and wait.
-      R.setMask (R.TXDCTL id) txdctlEnable
-      R.waitSet (R.TXDCTL id) txdctlEnable
+  -- Enable queue and wait.
+  R.setMask (R.TXDCTL id) txdctlEnable
+  R.waitSet (R.TXDCTL id) txdctlEnable
 
-      return $ queue & txqBuffers .~ bufPtrs
-      where txdctlEnable = 0x2000000
+  return $ queue & txqBuffers .~ bufPtrs
+  where txdctlEnable = 0x2000000
 
 -- | Wait until the device has set up the link and the link speed is available,
 -- or until the maximum wait time is exceeded.
