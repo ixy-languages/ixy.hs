@@ -358,7 +358,7 @@ initRx numRx = do
         (2 * numRxQueueEntries)
         (generatePtrs descPtr
                       (sizeOf (undefined :: ReceiveDescriptor))
-                      (numRxQueueEntries - 1)
+                      numRxQueueEntries
         )
       fIndex = readIORef indexRef
       fShift n = modifyIORef
@@ -390,7 +390,7 @@ startRxQueue (queue, id) = do
   -- Map the buffers to their descriptors now.
   let bufPtrs = Storable.generate
         (2 * numRxQueueEntries)
-        (generatePtrs bufPtr 2048 (numRxQueueEntries - 1))
+        (generatePtrs bufPtr 2048 numRxQueueEntries)
       descPtrs = queue ^. rxqDescriptors
   Storable.zipWithM_ writeDescriptor descPtrs bufPtrs
 
@@ -481,7 +481,7 @@ initTx numTx = do
         (2 * numTxQueueEntries)
         (generatePtrs descPtr
                       (sizeOf (undefined :: TransmitDescriptor))
-                      (numTxQueueEntries - 1)
+                      numTxQueueEntries
         )
       fIndex = readIORef indexRef
       fClean = readIORef cleanRef
@@ -518,7 +518,7 @@ startTxQueue (queue, id) = do
   bufPtr <- allocateRaw size False
   let bufPtrs = Storable.generate
         (2 * numTxQueueEntries)
-        (generatePtrs bufPtr 2048 (numTxQueueEntries - 1))
+        (generatePtrs bufPtr 2048 numTxQueueEntries)
 
   -- Tx starts out empty.
   R.set (R.TDH id) 0
