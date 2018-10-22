@@ -94,7 +94,12 @@ init bdf numRx numTx = do
       )
       dev
     _        <- liftIO $ stats dev
-    rxQueues <- runReaderT (initRx numRx) dev
+    rxQueues <- runReaderT
+      (do
+        queues <- initRx numRx
+        mapM startRxQueue $ zip queues [0 ..]
+      )
+      dev
     txQueues <- runReaderT
       (do
         queues <- initTx numTx
@@ -120,7 +125,16 @@ init bdf numRx numTx = do
      where
       resetMask        = 0x4000008
       disableInterrupt = 0x7FFFFFFF
-    initLink = R.setMask R.AUTOC anRestart where anRestart = 0x1000
+    initLink = do
+      -- Notice how the first call here is directly overwritten by the second,
+      -- but the original implementation does this.
+      R.set R.AUTOC =<< lms <$> R.get R.AUTOC
+      R.set R.AUTOC =<< magic <$> R.get R.AUTOC
+      R.setMask R.AUTOC anRestart
+     where
+      anRestart = 0x1000
+      lms       = (.|. shift 0x3 13) . (.&. complement (shift 0x7 13))
+      magic     = (.|. (shift 0x0 7 :: Word32)) . (.&. complement 0x00000180)
 
   receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
   receive dev (Driver.QueueId id) batchSize =
@@ -350,52 +364,50 @@ initRx numRx = do
       fShift n = modifyIORef
         indexRef
         (\current -> (current + n) `mod` numRxQueueEntries)
-    startRxQueue RxQueue
+    return RxQueue
       { _rxqDescriptors = descPtrs
       , _rxqBuffers     = undefined
       , _rxqIndex       = fIndex
       , _rxqShift       = fShift
       }
-   where
-    dropEnable = 0x10000000
-    startRxQueue
-      :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-      => RxQueue
-      -> m RxQueue
-    startRxQueue queue = do
-      deviceId <- showDeviceId
-      $(logDebug) $ deviceId <> " Starting rx queue " <> show id <> "."
+    where dropEnable = 0x10000000
+startRxQueue
+  :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
+  => (RxQueue, Int)
+  -> m RxQueue
+startRxQueue (queue, id) = do
+  deviceId <- showDeviceId
+  $(logDebug) $ deviceId <> " Starting rx queue " <> show id <> "."
 
-      -- Setup buffers for descriptors.
-      -- Unlike the original implementation we identity map buffers to descriptors
-      -- and do not change this anymore.
-      let size = assert (numRxQueueEntries .&. (numRxQueueEntries - 1) == 0)
-                        (numRxQueueEntries * 2048)
-      bufPtr <- allocateRaw size False
-      -- Again, look at how the descriptor vector in initQueue is generated to
-      -- understand this.
-      -- Map the buffers to their descriptors now.
-      let bufPtrs = Storable.generate
-            (2 * numRxQueueEntries)
-            (generatePtrs bufPtr 2048 (numRxQueueEntries - 1))
-          descPtrs = queue ^. rxqDescriptors
-      Storable.zipWithM_ writeDescriptor descPtrs bufPtrs
+  -- Setup buffers for descriptors.
+  -- Unlike the original implementation we identity map buffers to descriptors
+  -- and do not change this anymore.
+  let size = assert (numRxQueueEntries .&. (numRxQueueEntries - 1) == 0)
+                    (numRxQueueEntries * 2048)
+  bufPtr <- allocateRaw size False
+  -- Again, look at how the descriptor vector in initQueue is generated to
+  -- understand this.
+  -- Map the buffers to their descriptors now.
+  let bufPtrs = Storable.generate
+        (2 * numRxQueueEntries)
+        (generatePtrs bufPtr 2048 (numRxQueueEntries - 1))
+      descPtrs = queue ^. rxqDescriptors
+  Storable.zipWithM_ writeDescriptor descPtrs bufPtrs
 
-      -- Enable queue and wait.
-      R.setMask (R.RXDCTL id) rxdctlEnable
-      R.waitSet (R.RXDCTL id) rxdctlEnable
+  -- Enable queue and wait.
+  R.setMask (R.RXDCTL id) rxdctlEnable
+  R.waitSet (R.RXDCTL id) rxdctlEnable
 
-      -- Set rx queue to full.
-      R.set (R.RDH id) 0
-      R.set (R.RDT id) $ fromIntegral (numRxQueueEntries - 1)
+  -- Set rx queue to full.
+  R.set (R.RDH id) 0
+  R.set (R.RDT id) $ fromIntegral (numRxQueueEntries - 1)
 
-      return $ queue & rxqBuffers .~ bufPtrs
-     where
-      rxdctlEnable = 0x02000000
-      writeDescriptor descPtr bufPtr = do
-        bufPhysAddr <- translate bufPtr
-        liftIO
-          $ poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
+  return $ queue & rxqBuffers .~ bufPtrs
+ where
+  rxdctlEnable = 0x02000000
+  writeDescriptor descPtr bufPtr = do
+    bufPhysAddr <- translate bufPtr
+    liftIO $ poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
 
 -- | Initialize a number of tx queues.
 initTx
