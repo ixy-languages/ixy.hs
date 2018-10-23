@@ -76,6 +76,7 @@ data Register
     | TDT Int
     | LINKS
     | RXDCTL Int
+    | CRCERRS
     | UNDEFINED
     deriving (Eq, Show)
 
@@ -156,9 +157,9 @@ instance Enum Register where
     toEnum v
         | v >= 0x0D008 && v <= 0x0DFC8 && v `mod` 0x40 == 8 = RDLEN (((v - 0x0D008) `quot` 0x40) + 64)
     toEnum v
-        | v >= 0x01010 && v <= 0x01FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01014) `quot` 0x40)
+        | v >= 0x01010 && v <= 0x01FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01010) `quot` 0x40)
     toEnum v
-        | v >= 0x0D010 && v <= 0x0DFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D014) `quot` 0x40) + 64)
+        | v >= 0x0D010 && v <= 0x0DFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D010) `quot` 0x40) + 64)
     toEnum v
         | v >= 0x01014 && v <= 0x01FD4 && v `mod` 0x40 == 0x14 = SRRCTL ((v - 0x01014) `quot` 0x40)
     toEnum v

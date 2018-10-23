@@ -426,7 +426,6 @@ initTx numTx = do
   forM_ [1 .. 7] (\i -> R.set (R.TXPBSIZE i) 0)
 
   -- Required flags, when DCB/VTd are disabled.
-  R.setMask R.RTTDCS arbiterDisable
   R.set R.DTXMXSZRQ 0xFFFF
   R.clearMask R.RTTDCS arbiterDisable
 
@@ -491,7 +490,7 @@ initTx numTx = do
       fCleanShift n = modifyIORef
         indexRef
         (\current -> (current + n) `mod` numTxQueueEntries)
-    return $ TxQueue
+    return TxQueue
       { _txqDescriptors = descPtrs
       , _txqBuffers     = undefined
       , _txqIndex       = fIndex
