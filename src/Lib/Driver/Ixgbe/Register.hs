@@ -77,6 +77,7 @@ data Register
     | LINKS
     | RXDCTL Int
     | CRCERRS
+    | TXDGPC
     | UNDEFINED
     deriving (Eq, Show)
 
@@ -132,7 +133,9 @@ instance Enum Register where
     fromEnum DTXMXSZRQ = 0x08100
     fromEnum (TXPBSIZE i) = 0x0CC00 + (i * 4)
     fromEnum EEC = 0x10010
+    fromEnum CRCERRS = 0x4000
     fromEnum UNDEFINED = 0xFFFFF
+    fromEnum TXDGPC = 0x87A0
     toEnum 0x00888 = EIMC
     toEnum 0x00000 = CTRL
     toEnum 0x042A0 = AUTOC
@@ -198,6 +201,8 @@ instance Enum Register where
         | v >= 0x06018 && v <= 0x07FD8 && v `mod` 0x40 == 0x18 = TDT ((v - 0x06018) `quot` 0x40)
     toEnum v
         | v >= 0x06028 && v <= 0x07FE8 && v `mod` 0x40 == 0x28 = TXDCTL ((v - 0x06028) `quot` 0x40)
+    toEnum 0x4000 = CRCERRS
+    toEnum 0x87A0 = TXDGPC
     toEnum _ = UNDEFINED
 
 set :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
