@@ -93,17 +93,25 @@ init bdf numRx numTx = do
         initLink
       )
       dev
-    _         <- liftIO $ stats dev
-    rxQueues  <- runReaderT (initRx numRx) dev
-    txQueues  <- runReaderT (initTx numTx) dev
-    rxQueues' <- runReaderT (mapM startRxQueue $ zip rxQueues [0 ..]) dev
-    txQueues' <- runReaderT (mapM startTxQueue $ zip txQueues [0 ..]) dev
+    _        <- liftIO $ stats dev
+    rxQueues <- runReaderT
+      (do
+        queues <- initRx numRx
+        mapM startRxQueue $ zip queues [0 ..]
+      )
+      dev
+    txQueues <- runReaderT
+      (do
+        queues <- initTx numTx
+        mapM startTxQueue $ zip queues [0 ..]
+      )
+      dev
     put
       $  dev
       &  devRxQueues
-      .~ V.fromList rxQueues'
+      .~ V.fromList rxQueues
       &  devTxQueues
-      .~ V.fromList txQueues'
+      .~ V.fromList txQueues
     liftIO $ setPromisc dev True
     runReaderT (waitForLink 1000) dev
    where
@@ -425,7 +433,7 @@ initTx numTx = do
   txQueues <- mapM initQueue [0 .. (numTx - 1)]
 
   -- Enable DMA.
-  -- NB: This MUST be done before enabling any queue, otherwise the queue just won't enable.
+  -- NB: This MUST be done, before enabling any queue, otherwise the queue just won't enable.
   R.set R.DMATXCTL dmaTxEnable
 
   return txQueues
@@ -524,7 +532,7 @@ startTxQueue (queue, id) = do
 
 -- | Wait until the device has set up the link and the link speed is available,
 -- or until the maximum wait time is exceeded.
---
+-- 
 -- The function waits for 10ms after each try.
 waitForLink :: (MonadIO m, MonadReader Device m, MonadLogger m) => Int -> m ()
 waitForLink maxTries = do
