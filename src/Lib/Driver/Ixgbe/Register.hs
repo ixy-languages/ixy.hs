@@ -223,7 +223,7 @@ setMask register mask = do
 clearMask :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 clearMask register mask = do
   current <- get register
-  set register (current .|. complement mask)
+  set register (current .&. complement mask)
 
 waitUntil
   :: (MonadIO m, MonadReader Device m)
