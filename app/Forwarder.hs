@@ -6,8 +6,10 @@ import           Lib
 import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.Logger
+import qualified Data.ByteString               as B
 import           Data.IORef
 import           Data.Maybe
+import qualified Data.Vector                   as V
 import           Protolude
 
 newtype App a = App { runApp :: LoggingT IO a } deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadLogger)
@@ -40,5 +42,12 @@ loop counter dev1 dev2 = forever $ do
 forward :: Device -> Device -> IO ()
 forward rxDev txDev = do
   pkts <- receive rxDev (QueueId 0) 64
-  _    <- send txDev (QueueId 0) pkts
+  unless
+    (V.null pkts)
+    (do
+      let touchedPkts = map touchPacket pkts
+      _ <- send txDev (QueueId 0) touchedPkts
+      return ()
+    )
   return ()
+  where touchPacket b = (B.head b + 1) `B.cons` B.tail b
