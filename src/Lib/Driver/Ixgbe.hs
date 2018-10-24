@@ -229,7 +229,9 @@ init bdf numRx numTx = do
         descExt            = 0x20000000
         advDesc            = 0x300000
     clean curIndex cleanIndex queue = do
-      let cleanAmount = assert (curIndex >= cleanIndex) (curIndex - cleanIndex)
+      let cleanAmount = if curIndex >= cleanIndex
+            then curIndex - cleanIndex
+            else numTxQueueEntries - cleanIndex + curIndex
       if cleanAmount < txCleanBatch
         then return cleanIndex
         else do
@@ -364,7 +366,7 @@ initRx numRx = do
                       numRxQueueEntries
         )
       fIndex = readIORef indexRef
-      fShift n = modifyIORef
+      fShift n = modifyIORef'
         indexRef
         (\current -> (current + n) `mod` numRxQueueEntries)
     return RxQueue
@@ -487,11 +489,11 @@ initTx numTx = do
         )
       fIndex = readIORef indexRef
       fClean = readIORef cleanRef
-      fShift n = modifyIORef
+      fShift n = modifyIORef'
         indexRef
         (\current -> (current + n) `mod` numTxQueueEntries)
-      fCleanShift n = modifyIORef
-        indexRef
+      fCleanShift n = modifyIORef'
+        cleanRef
         (\current -> (current + n) `mod` numTxQueueEntries)
     return TxQueue
       { _txqDescriptors = descPtrs
