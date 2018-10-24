@@ -43,10 +43,22 @@ loop counter dev1 dev2 = do
           (do
             st1 <- stats dev1
             st2 <- stats dev2
-            putStrLn (show st1 :: Text)
-            putStrLn (show st2 :: Text)
+            putStrLn
+              ("Device 1 -> RX: "
+              <> show (fromIntegral (stRxPkts st1) / 1000000)
+              <> "Mpps | TX: "
+              <> show (fromIntegral (stTxPkts st1) / 1000000)
+              <> "Mpps" :: Text
+              )
+            putStrLn
+              ("Device 2 -> RX: "
+              <> show (fromIntegral (stRxPkts st2) / 1000000)
+              <> "Mpps | TX: "
+              <> show (fromIntegral (stTxPkts st2) / 1000000)
+              <> "Mpps" :: Text
+              )
+            writeIORef timeRef t
           )
-        writeIORef timeRef t
       )
     modifyIORef' counter (+ 1)
 
@@ -62,3 +74,4 @@ forward rxDev txDev = do
     )
   return ()
   where touchPacket b = (B.head b + 1) `B.cons` B.tail b
+

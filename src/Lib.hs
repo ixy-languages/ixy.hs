@@ -15,6 +15,7 @@ module Lib
     Driver.Device(..)
   , newDriver
   , Driver.QueueId(..)
+  , Driver.Stats(..)
   )
 where
 
