@@ -28,14 +28,20 @@ import           Control.Lens
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import qualified Data.ByteString               as B
+import           Data.ByteString.Unsafe
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
+import           Foreign.C.String
 import           Foreign.Marshal.Array          ( peekArray
                                                 , pokeArray
                                                 )
-import           Foreign.Marshal.Utils          ( fillBytes )
-import           Foreign.Ptr                    ( plusPtr )
+import           Foreign.Marshal.Utils          ( copyBytes
+                                                , fillBytes
+                                                )
+import           Foreign.Ptr                    ( plusPtr
+                                                , castPtr
+                                                )
 import           Foreign.Storable               ( sizeOf
                                                 , peek
                                                 , poke
@@ -181,32 +187,31 @@ init bdf numRx numTx = do
       cleanIndex  <- liftIO $ queue ^. txqCleanIndex
       cleanIndex' <- clean curIndex cleanIndex queue
       let len = V.length bufs
-          -- n   = min (numTxQueueEntries - curIndex - cleanIndex') len
           n   = if curIndex >= cleanIndex'
             then min (numTxQueueEntries - curIndex + cleanIndex') len
             else min (cleanIndex' - txCleanBatch - curIndex) len
-          -- Not very nice to convert here, but zipWithM has problematic signature.
-          descPtrs = V.slice curIndex n (queue ^. txqDescriptors)
-          bufPtrs  = V.slice curIndex n (queue ^. txqBuffers)
+          descPtrs = V.unsafeSlice curIndex n (queue ^. txqDescriptors)
+          bufPtrs  = V.unsafeSlice curIndex n (queue ^. txqBuffers)
       V.mapM_ writeDescriptor $ V.zip3 bufs descPtrs bufPtrs
       -- Advance tail pointer.
       liftIO $ (queue ^. txqShift) n
       liftIO $ (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
-      newIndex <- liftIO $ queue ^. txqIndex
-      runReaderT (R.set (R.TDT id) $ fromIntegral newIndex) dev
+      -- newIndex <- liftIO $ queue ^. txqIndex
+      -- runReaderT (R.set (R.TDT id) $ fromIntegral newIndex) dev
+      runReaderT (R.set (R.TDT id) $ fromIntegral (curIndex + n)) dev
       if n /= len
-        then return $ Left (V.drop (len - n) bufs)
+        then return $ Left (V.unsafeDrop (len - n) bufs)
         else return $ Right ()
-    writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) = liftIO $ do
-      pokeArray bufPtr $ B.unpack buf
-      let len = B.length buf
-      poke
-        descPtr
-        ReadTx
-          { tdBufAddr      = bufPhysAddr
-          , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
-          , tdOlInfoStatus = fromIntegral $ shift len 14
-          }
+    writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) =
+      liftIO $ unsafeUseAsCStringLen buf $ \(ptr, len) -> do
+        copyBytes ptr (castPtr bufPtr) len
+        poke
+          descPtr
+          ReadTx
+            { tdBufAddr      = bufPhysAddr
+            , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
+            , tdOlInfoStatus = fromIntegral $ shift len 14
+            }
      where
       cmdTypeLen = (.|.)
         (   endOfPacket
