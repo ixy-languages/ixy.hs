@@ -166,8 +166,7 @@ init bdf numRx numTx = do
             liftIO $ poke
               descPtr
               ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
-            buffer <- liftIO $ peekArray len bufPtr
-            return $ Just (B.pack buffer)
+            Just <$> unsafePackCStringLen (castPtr bufPtr, len)
         else return Nothing
      where
       isDone        = flip testBit 0
