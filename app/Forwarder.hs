@@ -8,7 +8,6 @@ import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Data.IORef
 import           Data.Maybe
-import qualified Data.Vector                   as V
 import           Protolude
 
 newtype App a = App { runApp :: LoggingT IO a } deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadLogger)
