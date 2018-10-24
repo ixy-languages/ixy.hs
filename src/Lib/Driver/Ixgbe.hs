@@ -152,20 +152,18 @@ init bdf numRx numTx = do
       let descPtrs = V.slice curIndex batchSize (queue ^. rxqDescriptors)
           bufPtrs  = V.slice curIndex batchSize (queue ^. rxqBuffers)
       pkts <- V.zipWithM readPackets descPtrs bufPtrs
-      liftIO $ (queue ^. rxqShift) $ V.length pkts
-      newIndex <- liftIO $ queue ^. rxqIndex
-      runReaderT (R.set (R.RDT id) $ fromIntegral newIndex) dev
+      let len = V.length pkts
+      (queue ^. rxqShift) len
+      runReaderT (R.set (R.RDT id) $ fromIntegral (curIndex + len)) dev
       return $ V.mapMaybe identity pkts
     readPackets descPtr (bufPtr, bufPhysAddr) = do
-      descriptor <- liftIO $ peek descPtr
+      descriptor <- peek descPtr
       if isDone $ rdStatusError descriptor
         then if not $ isEndOfPacket $ rdStatusError descriptor
           then throwM $ userError "Multi-segment packets are not supported."
           else do
             let len = fromIntegral $ rdLength descriptor
-            liftIO $ poke
-              descPtr
-              ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
+            poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
             Just <$> unsafePackCStringLen (castPtr bufPtr, len)
         else return Nothing
      where
@@ -182,8 +180,8 @@ init bdf numRx numTx = do
     Nothing    -> return $ Left bufs
    where
     inner queue = do
-      curIndex    <- liftIO $ queue ^. txqIndex
-      cleanIndex  <- liftIO $ queue ^. txqCleanIndex
+      curIndex    <- queue ^. txqIndex
+      cleanIndex  <- queue ^. txqCleanIndex
       cleanIndex' <- clean curIndex cleanIndex queue
       let len = V.length bufs
           n   = if curIndex >= cleanIndex'
@@ -193,16 +191,14 @@ init bdf numRx numTx = do
           bufPtrs  = V.unsafeSlice curIndex n (queue ^. txqBuffers)
       V.mapM_ writeDescriptor $ V.zip3 bufs descPtrs bufPtrs
       -- Advance tail pointer.
-      liftIO $ (queue ^. txqShift) n
-      liftIO $ (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
-      -- newIndex <- liftIO $ queue ^. txqIndex
-      -- runReaderT (R.set (R.TDT id) $ fromIntegral newIndex) dev
+      (queue ^. txqShift) n
+      (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
       runReaderT (R.set (R.TDT id) $ fromIntegral (curIndex + n)) dev
       if n /= len
         then return $ Left (V.unsafeDrop (len - n) bufs)
         else return $ Right ()
     writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) =
-      liftIO $ unsafeUseAsCStringLen buf $ \(ptr, len) -> do
+      unsafeUseAsCStringLen buf $ \(ptr, len) -> do
         copyBytes ptr (castPtr bufPtr) len
         poke
           descPtr
