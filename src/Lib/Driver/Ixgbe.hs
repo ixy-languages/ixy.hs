@@ -532,7 +532,7 @@ startTxQueue (queue, id) = do
 
 -- | Wait until the device has set up the link and the link speed is available,
 -- or until the maximum wait time is exceeded.
--- 
+--
 -- The function waits for 10ms after each try.
 waitForLink :: (MonadIO m, MonadReader Device m, MonadLogger m) => Int -> m ()
 waitForLink maxTries = do
