@@ -31,7 +31,6 @@ import qualified Data.ByteString               as B
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
-import qualified Data.Vector.Storable          as Storable
 import           Foreign.Marshal.Array          ( peekArray
                                                 , pokeArray
                                                 )
@@ -144,22 +143,20 @@ init bdf numRx numTx = do
    where
     inner queue = do
       curIndex <- queue ^. rxqIndex
-      let descPtrs =
-            Storable.slice curIndex batchSize (queue ^. rxqDescriptors)
-          bufPtrs = Storable.slice curIndex batchSize (queue ^. rxqBuffers)
-      pkts <- V.zipWithM readPackets (V.convert descPtrs) (V.convert bufPtrs)
+      let descPtrs = V.slice curIndex batchSize (queue ^. rxqDescriptors)
+          bufPtrs  = V.slice curIndex batchSize (queue ^. rxqBuffers)
+      pkts <- V.zipWithM readPackets descPtrs bufPtrs
       liftIO $ (queue ^. rxqShift) $ V.length pkts
       newIndex <- liftIO $ queue ^. rxqIndex
       runReaderT (R.set (R.RDT id) $ fromIntegral newIndex) dev
       return $ V.mapMaybe identity pkts
-    readPackets descPtr bufPtr = do
+    readPackets descPtr (bufPtr, bufPhysAddr) = do
       descriptor <- liftIO $ peek descPtr
       if isDone $ rdStatusError descriptor
         then if not $ isEndOfPacket $ rdStatusError descriptor
           then throwM $ userError "Multi-segment packets are not supported."
           else do
             let len = fromIntegral $ rdLength descriptor
-            bufPhysAddr <- translate bufPtr
             liftIO $ poke
               descPtr
               ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
@@ -183,16 +180,14 @@ init bdf numRx numTx = do
       curIndex    <- liftIO $ queue ^. txqIndex
       cleanIndex  <- liftIO $ queue ^. txqCleanIndex
       cleanIndex' <- clean curIndex cleanIndex queue
-      let
-        len = V.length bufs
-        -- n   = min (numTxQueueEntries - curIndex - cleanIndex') len
-        n   = if curIndex >= cleanIndex'
-          then min (numTxQueueEntries - curIndex + cleanIndex') len
-          else min (cleanIndex' - txCleanBatch - curIndex) len
-        -- Not very nice to convert here, but zipWithM has problematic signature.
-        descPtrs =
-          V.convert $ Storable.slice curIndex n (queue ^. txqDescriptors)
-        bufPtrs = V.convert $ Storable.slice curIndex n (queue ^. txqBuffers)
+      let len = V.length bufs
+          -- n   = min (numTxQueueEntries - curIndex - cleanIndex') len
+          n   = if curIndex >= cleanIndex'
+            then min (numTxQueueEntries - curIndex + cleanIndex') len
+            else min (cleanIndex' - txCleanBatch - curIndex) len
+          -- Not very nice to convert here, but zipWithM has problematic signature.
+          descPtrs = V.slice curIndex n (queue ^. txqDescriptors)
+          bufPtrs  = V.slice curIndex n (queue ^. txqBuffers)
       V.mapM_ writeDescriptor $ V.zip3 bufs descPtrs bufPtrs
       -- Advance tail pointer.
       liftIO $ (queue ^. txqShift) n
@@ -202,18 +197,16 @@ init bdf numRx numTx = do
       if n /= len
         then return $ Left (V.drop (len - n) bufs)
         else return $ Right ()
-    writeDescriptor (buf, descPtr, bufPtr) = do
-      bufPhysAddr <- translate bufPtr
-      liftIO $ do
-        pokeArray bufPtr $ B.unpack buf
-        let len = B.length buf
-        poke
-          descPtr
-          ReadTx
-            { tdBufAddr      = bufPhysAddr
-            , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
-            , tdOlInfoStatus = fromIntegral $ shift len 14
-            }
+    writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) = liftIO $ do
+      pokeArray bufPtr $ B.unpack buf
+      let len = B.length buf
+      poke
+        descPtr
+        ReadTx
+          { tdBufAddr      = bufPhysAddr
+          , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
+          , tdOlInfoStatus = fromIntegral $ shift len 14
+          }
      where
       cmdTypeLen = (.|.)
         (   endOfPacket
@@ -237,7 +230,7 @@ init bdf numRx numTx = do
         else do
           let descriptors = queue ^. txqDescriptors
               cleanBound  = cleanIndex + txCleanBatch - 1
-          case descriptors Storable.!? cleanBound of
+          case descriptors V.!? cleanBound of
             Just descPtr -> do
               descriptor <- liftIO $ peek descPtr
               return $ if isDone $ tdStatus descriptor
@@ -359,7 +352,7 @@ initRx numRx = do
     -- So we can slice from the vector without weird wrapping action and the vector is
     -- immutable anyway.
     let
-      descPtrs = Storable.generate
+      descPtrs = V.generate
         (2 * numRxQueueEntries)
         (generatePtrs descPtr
                       (sizeOf (undefined :: ReceiveDescriptor))
@@ -393,11 +386,10 @@ startRxQueue (queue, id) = do
   -- Again, look at how the descriptor vector in initQueue is generated to
   -- understand this.
   -- Map the buffers to their descriptors now.
-  let bufPtrs = Storable.generate
-        (2 * numRxQueueEntries)
-        (generatePtrs bufPtr 2048 numRxQueueEntries)
-      descPtrs = queue ^. rxqDescriptors
-  Storable.zipWithM_ writeDescriptor descPtrs bufPtrs
+  let descPtrs = queue ^. rxqDescriptors
+  bufPtrs <- V.generateM (2 * numRxQueueEntries)
+                         (generateBufPtrs bufPtr numRxQueueEntries)
+  V.zipWithM_ writeDescriptor descPtrs bufPtrs
 
   -- Enable queue and wait.
   R.setMask (R.RXDCTL id) rxdctlEnable
@@ -410,8 +402,7 @@ startRxQueue (queue, id) = do
   return $ queue & rxqBuffers .~ bufPtrs
  where
   rxdctlEnable = 0x02000000
-  writeDescriptor descPtr bufPtr = do
-    bufPhysAddr <- translate bufPtr
+  writeDescriptor descPtr (bufPtr, bufPhysAddr) = do
     liftIO $ poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
 
 -- | Initialize a number of tx queues.
@@ -481,7 +472,7 @@ initTx numTx = do
     indexRef <- liftIO $ newIORef (0 :: Int)
     cleanRef <- liftIO $ newIORef (0 :: Int)
     let
-      descPtrs = Storable.generate
+      descPtrs = V.generate
         (2 * numTxQueueEntries)
         (generatePtrs descPtr
                       (sizeOf (undefined :: TransmitDescriptor))
@@ -519,10 +510,9 @@ startTxQueue (queue, id) = do
   -- This differs from ixy.
   let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) == 0)
                     (numTxQueueEntries * 2048)
-  bufPtr <- allocateRaw size False
-  let bufPtrs = Storable.generate
-        (2 * numTxQueueEntries)
-        (generatePtrs bufPtr 2048 numTxQueueEntries)
+  bufPtr  <- allocateRaw size False
+  bufPtrs <- V.generateM (2 * numTxQueueEntries)
+                         (generateBufPtrs bufPtr numTxQueueEntries)
 
   -- Tx starts out empty.
   R.set (R.TDH id) 0
@@ -589,6 +579,11 @@ showDeviceId = do
 
 generatePtrs :: Ptr a -> Int -> Int -> Int -> Ptr a
 generatePtrs ptr offset num i = ptr `plusPtr` ((i `mod` num) * offset)
+
+generateBufPtrs :: (MonadIO m) => Ptr a -> Int -> Int -> m (Ptr Word8, PhysAddr)
+generateBufPtrs ptr num i = do
+  bufPhysAddr <- translate ptr
+  return (ptr `plusPtr` ((i `mod` num) * 2048), bufPhysAddr)
 
 allocateDescriptors
   :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)

@@ -37,10 +37,10 @@ where
 
 import           Lib.Prelude
 import           Lib.Pci
+import           Lib.Memory
 
 import           Control.Lens
 import qualified Data.Vector                   as V
-import qualified Data.Vector.Storable          as Storable
 import           Foreign.Ptr                    ( castPtr )
 import           Foreign.Storable               ( sizeOf
                                                 , alignment
@@ -86,14 +86,14 @@ instance Storable TransmitDescriptor where
     pokeByteOff ptr (sizeOf (0 :: Word64)) $ tdCmdTypeLen tdesc
     pokeByteOff ptr (sizeOf (0 :: Word64) + sizeOf (0 :: Word32)) $ tdOlInfoStatus tdesc
 
-data RxQueue = RxQueue { _rxqDescriptors :: Storable.Vector (Ptr ReceiveDescriptor)
-                       , _rxqBuffers :: Storable.Vector (Ptr Word8)
+data RxQueue = RxQueue { _rxqDescriptors :: V.Vector (Ptr ReceiveDescriptor)
+                       , _rxqBuffers :: V.Vector (VirtAddr Word8, PhysAddr)
                        , _rxqIndex :: IO Int
                        , _rxqShift :: Int -> IO ()}
 makeLenses ''RxQueue
 
-data TxQueue = TxQueue { _txqDescriptors :: Storable.Vector (Ptr TransmitDescriptor)
-                       , _txqBuffers :: Storable.Vector (Ptr Word8)
+data TxQueue = TxQueue { _txqDescriptors :: V.Vector (Ptr TransmitDescriptor)
+                       , _txqBuffers :: V.Vector (VirtAddr Word8, PhysAddr)
                        , _txqIndex :: IO Int
                        , _txqCleanIndex :: IO Int
                        , _txqShift :: Int -> IO ()

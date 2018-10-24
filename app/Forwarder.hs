@@ -64,7 +64,7 @@ loop counter dev1 dev2 = do
 
 forward :: Device -> Device -> IO ()
 forward rxDev txDev = do
-  pkts <- receive rxDev (QueueId 0) 32
+  pkts <- receive rxDev (QueueId 0) 128
   unless
     (V.null pkts)
     (do
