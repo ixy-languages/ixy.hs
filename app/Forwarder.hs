@@ -39,9 +39,11 @@ loop counter dev1 dev2 = do
       (do
         !t          <- getTime clock
         !beforeTime <- readIORef timeRef
+        let diff = diffTimeSpec t beforeTime
         when
-          (sec (diffTimeSpec t beforeTime) >= 1)
+          (sec diff >= 1)
           (do
+            putStrLn ("Diff was: " <> show diff :: Text)
             !st1 <- stats dev1
             !st2 <- stats dev2
             putStrLn
@@ -59,7 +61,7 @@ loop counter dev1 dev2 = do
               ("Device 2 -> RX: "
               <> show (fromIntegral (stRxPkts st2) / 1000000)
               <> "Mpps, "
-              <> show (fromIntegral (stTxBytes st2) / 1000000)
+              <> show (fromIntegral (stRxBytes st2) / 1000000)
               <> " MBit/s | TX: "
               <> show (fromIntegral (stTxPkts st2) / 1000000)
               <> "Mpps, "
