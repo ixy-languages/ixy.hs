@@ -232,7 +232,7 @@ init bdf numRx numTx = do
               cleanBound  = cleanIndex + txCleanBatch - 1
           case descriptors V.!? cleanBound of
             Just descPtr -> do
-              descriptor <- liftIO $ peek descPtr
+              descriptor <- peek descPtr
               return $ if isDone $ tdStatus descriptor
                 then cleanBound
                 else cleanIndex
@@ -582,8 +582,9 @@ generatePtrs ptr offset num i = ptr `plusPtr` ((i `mod` num) * offset)
 
 generateBufPtrs :: (MonadIO m) => Ptr a -> Int -> Int -> m (Ptr Word8, PhysAddr)
 generateBufPtrs ptr num i = do
-  bufPhysAddr <- translate ptr
-  return (ptr `plusPtr` ((i `mod` num) * 2048), bufPhysAddr)
+  let bufPtr = ptr `plusPtr` ((i `rem` num) * 2048)
+  bufPhysAddr <- translate bufPtr
+  return (bufPtr, bufPhysAddr)
 
 allocateDescriptors
   :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
