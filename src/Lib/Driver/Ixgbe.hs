@@ -150,8 +150,9 @@ init bdf numRx numTx = do
    where
     inner queue = do
       !curIndex <- queue ^. rxqIndex
-      let !descPtrs = V.slice curIndex batchSize (queue ^. rxqDescriptors)
-          !bufPtrs  = V.slice curIndex batchSize (queue ^. rxqBuffers)
+      let !descPtrs =
+            V.unsafeSlice curIndex batchSize (queue ^. rxqDescriptors)
+          !bufPtrs = V.unsafeSlice curIndex batchSize (queue ^. rxqBuffers)
       !pkts <- V.mapMaybe identity <$> V.zipWithM readPackets descPtrs bufPtrs
       let !len = V.length pkts
       (queue ^. rxqShift) len
@@ -185,7 +186,7 @@ init bdf numRx numTx = do
       !cleanIndex  <- queue ^. txqCleanIndex
       !cleanIndex' <- clean curIndex cleanIndex queue
       let !len = V.length bufs
-          n    = if curIndex >= cleanIndex'
+          !n   = if curIndex >= cleanIndex'
             then min (numTxQueueEntries - curIndex + cleanIndex') len
             else min (cleanIndex' - txCleanBatch - curIndex) len
           descPtrs = V.unsafeSlice curIndex n (queue ^. txqDescriptors)
@@ -243,11 +244,17 @@ init bdf numRx numTx = do
   stats :: Device -> IO Driver.Stats
   stats = runReaderT
     (do
-      rxPkts <- R.get R.GPRC
-      txPkts <- R.get R.GPTC
+      rxPkts   <- R.get R.GPRC
+      txPkts   <- R.get R.GPTC
+      rxBytesL <- R.get R.GORCL
+      rxBytesH <- (`shift` 32) <$> R.get R.GORCH
+      txBytesL <- R.get R.GOTCL
+      txBytesH <- (`shift` 32) <$> R.get R.GOTCH
       return Driver.Stats
-        { Driver.stRxPkts = fromIntegral rxPkts
-        , Driver.stTxPkts = fromIntegral txPkts
+        { Driver.stRxPkts  = fromIntegral rxPkts
+        , Driver.stTxPkts  = fromIntegral txPkts
+        , Driver.stRxBytes = fromIntegral (rxBytesL + rxBytesH)
+        , Driver.stTxBytes = fromIntegral (txBytesL + txBytesH)
         }
     )
 

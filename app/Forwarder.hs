@@ -47,16 +47,24 @@ loop counter dev1 dev2 = do
             putStrLn
               ("Device 1 -> RX: "
               <> show (fromIntegral (stRxPkts st1) / 1000000)
-              <> "Mpps | TX: "
+              <> "Mpps, "
+              <> show (fromIntegral (stRxBytes st1) / 1000000)
+              <> " MBit/s | TX: "
               <> show (fromIntegral (stTxPkts st1) / 1000000)
-              <> "Mpps" :: Text
+              <> "Mpps, "
+              <> show (fromIntegral (stTxBytes st1) / 1000000)
+              <> " MBit/s" :: Text
               )
             putStrLn
               ("Device 2 -> RX: "
               <> show (fromIntegral (stRxPkts st2) / 1000000)
-              <> "Mpps | TX: "
+              <> "Mpps, "
+              <> show (fromIntegral (stTxBytes st2) / 1000000)
+              <> " MBit/s | TX: "
               <> show (fromIntegral (stTxPkts st2) / 1000000)
-              <> "Mpps" :: Text
+              <> "Mpps, "
+              <> show (fromIntegral (stTxBytes st2) / 1000000)
+              <> " MBit/s" :: Text
               )
             writeIORef timeRef t
           )

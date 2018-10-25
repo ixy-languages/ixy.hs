@@ -34,4 +34,6 @@ data Device = Device { send :: QueueId -> V.Vector ByteString -> IO (Either (V.V
 -- 
 -- Exact meaning of the fields is device-dependant.
 data Stats = Stats {stRxPkts :: Int
-                   , stTxPkts :: Int} deriving (Show)
+                   , stTxPkts :: Int
+                   , stRxBytes :: Int
+                   , stTxBytes :: Int} deriving (Show)
