@@ -151,11 +151,11 @@ init bdf numRx numTx = do
       curIndex <- queue ^. rxqIndex
       let descPtrs = V.slice curIndex batchSize (queue ^. rxqDescriptors)
           bufPtrs  = V.slice curIndex batchSize (queue ^. rxqBuffers)
-      pkts <- V.zipWithM readPackets descPtrs bufPtrs
+      pkts <- V.mapMaybe identity <$> V.zipWithM readPackets descPtrs bufPtrs
       let len = V.length pkts
       (queue ^. rxqShift) len
       runReaderT (R.set (R.RDT id) $ fromIntegral (curIndex + len)) dev
-      return $ V.mapMaybe identity pkts
+      return pkts
     readPackets descPtr (bufPtr, bufPhysAddr) = do
       descriptor <- peek descPtr
       if isDone $ rdStatusError descriptor
@@ -229,7 +229,7 @@ init bdf numRx numTx = do
         then return cleanIndex
         else do
           let descriptors = queue ^. txqDescriptors
-              cleanBound  = cleanIndex + txCleanBatch - 1
+              cleanBound  = cleanIndex + cleanAmount - 1
           case descriptors V.!? cleanBound of
             Just descPtr -> do
               descriptor <- peek descPtr
