@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
 -- |
 -- Module      :  Lib.Driver.Ixgbe
@@ -148,21 +149,21 @@ init bdf numRx numTx = do
       Nothing    -> return V.empty
    where
     inner queue = do
-      curIndex <- queue ^. rxqIndex
-      let descPtrs = V.slice curIndex batchSize (queue ^. rxqDescriptors)
-          bufPtrs  = V.slice curIndex batchSize (queue ^. rxqBuffers)
-      pkts <- V.mapMaybe identity <$> V.zipWithM readPackets descPtrs bufPtrs
-      let len = V.length pkts
+      !curIndex <- queue ^. rxqIndex
+      let !descPtrs = V.slice curIndex batchSize (queue ^. rxqDescriptors)
+          !bufPtrs  = V.slice curIndex batchSize (queue ^. rxqBuffers)
+      !pkts <- V.mapMaybe identity <$> V.zipWithM readPackets descPtrs bufPtrs
+      let !len = V.length pkts
       (queue ^. rxqShift) len
       runReaderT (R.set (R.RDT id) $ fromIntegral (curIndex + len)) dev
       return pkts
     readPackets descPtr (bufPtr, bufPhysAddr) = do
-      descriptor <- peek descPtr
+      !descriptor <- peek descPtr
       if isDone $ rdStatusError descriptor
         then if not $ isEndOfPacket $ rdStatusError descriptor
           then throwM $ userError "Multi-segment packets are not supported."
           else do
-            let len = fromIntegral $ rdLength descriptor
+            let !len = fromIntegral $ rdLength descriptor
             poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
             Just <$> unsafePackCStringLen (castPtr bufPtr, len)
         else return Nothing
@@ -180,11 +181,11 @@ init bdf numRx numTx = do
     Nothing    -> return $ Left bufs
    where
     inner queue = do
-      curIndex    <- queue ^. txqIndex
-      cleanIndex  <- queue ^. txqCleanIndex
-      cleanIndex' <- clean curIndex cleanIndex queue
-      let len = V.length bufs
-          n   = if curIndex >= cleanIndex'
+      !curIndex    <- queue ^. txqIndex
+      !cleanIndex  <- queue ^. txqCleanIndex
+      !cleanIndex' <- clean curIndex cleanIndex queue
+      let !len = V.length bufs
+          n    = if curIndex >= cleanIndex'
             then min (numTxQueueEntries - curIndex + cleanIndex') len
             else min (cleanIndex' - txCleanBatch - curIndex) len
           descPtrs = V.unsafeSlice curIndex n (queue ^. txqDescriptors)
@@ -199,7 +200,7 @@ init bdf numRx numTx = do
         else return $ Right ()
     writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) =
       unsafeUseAsCStringLen buf $ \(ptr, len) -> do
-        copyBytes ptr (castPtr bufPtr) len
+        copyBytes (castPtr bufPtr) ptr len
         poke
           descPtr
           ReadTx
@@ -222,17 +223,17 @@ init bdf numRx numTx = do
         descExt            = 0x20000000
         advDesc            = 0x300000
     clean curIndex cleanIndex queue = do
-      let cleanAmount = if curIndex >= cleanIndex
+      let !cleanAmount = if curIndex >= cleanIndex
             then curIndex - cleanIndex
             else numTxQueueEntries - cleanIndex + curIndex
       if cleanAmount < txCleanBatch
         then return cleanIndex
         else do
-          let descriptors = queue ^. txqDescriptors
-              cleanBound  = cleanIndex + cleanAmount - 1
+          let !descriptors = queue ^. txqDescriptors
+              !cleanBound  = cleanIndex + cleanAmount - 1
           case descriptors V.!? cleanBound of
             Just descPtr -> do
-              descriptor <- peek descPtr
+              !descriptor <- peek descPtr
               return $ if isDone $ tdStatus descriptor
                 then cleanBound
                 else cleanIndex

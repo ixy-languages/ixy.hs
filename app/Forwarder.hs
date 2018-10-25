@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main where
 
@@ -32,17 +33,17 @@ loop counter dev1 dev2 = do
   forever $ do
     forward dev1 dev2
     forward dev2 dev1
-    c <- readIORef counter
+    !c <- readIORef counter
     when
       (c .&. 0xFF == 0)
       (do
-        t          <- getTime clock
-        beforeTime <- readIORef timeRef
+        !t          <- getTime clock
+        !beforeTime <- readIORef timeRef
         when
           (sec (diffTimeSpec t beforeTime) >= 1)
           (do
-            st1 <- stats dev1
-            st2 <- stats dev2
+            !st1 <- stats dev1
+            !st2 <- stats dev2
             putStrLn
               ("Device 1 -> RX: "
               <> show (fromIntegral (stRxPkts st1) / 1000000)
@@ -64,11 +65,11 @@ loop counter dev1 dev2 = do
 
 forward :: Device -> Device -> IO ()
 forward rxDev txDev = do
-  pkts <- receive rxDev (QueueId 0) 128
+  !pkts <- receive rxDev (QueueId 0) 128
   unless
     (V.null pkts)
     (do
-      let touchedPkts = map touchPacket pkts
+      let !touchedPkts = map touchPacket pkts
       _ <- send txDev (QueueId 0) touchedPkts
       return ()
     )
