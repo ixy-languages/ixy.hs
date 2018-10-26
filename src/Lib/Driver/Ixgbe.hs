@@ -169,28 +169,26 @@ unsafeReceive dev id queue num = do
  where
   inner rxIndex i = do
     let !descLen = sizeOf nullReceiveDescriptor
-        !descPtr = rxqDescBase queue `plusPtr` ((rxIndex + i) * descLen)
+        !offset  = (rxIndex + i) `mod` numRxQueueEntries
+        !descPtr = rxqDescBase queue `plusPtr` (offset * descLen)
     do
       wbDesc <- peek descPtr
       if rdStatus wbDesc .&. 0x1 /= 0
         then if rdStatus wbDesc .&. 0x2 == 0
           then throwIO $ userError "Multi-segment packets are not supported."
           else
-            let bufPtr =
-                  rxqBufBase queue `plusPtr` ((rxIndex + i) * bufferSize)
+            let bufPtr = rxqBufBase queue `plusPtr` (offset * bufferSize)
                 bufPhysAddr =
                   fromIntegral
                     $ fromIntegral (rxqBufPhysBase queue)
-                    + ((rxIndex + i) * bufferSize)
+                    + (offset * bufferSize)
             in  do
                   buf <- peekArray (fromIntegral $ rdLength wbDesc) bufPtr
                   poke
                     descPtr
                     ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
                   if i == num - 1
-                    then (buf :) <$> inner
-                      rxIndex
-                      (wrapRing (rxIndex + i) numRxQueueEntries - rxIndex)
+                    then (buf :) <$> inner rxIndex (i + 1)
                     else return []
         else return []
 
