@@ -18,31 +18,25 @@ module Lib.Driver.Ixgbe
 where
 
 import qualified Lib.Driver                    as Driver
+import           Lib.Driver.Ixgbe.Device
+import           Lib.Driver.Ixgbe.Descriptor
 import qualified Lib.Driver.Ixgbe.Register     as R
-import           Lib.Driver.Ixgbe.Types
+import           Lib.Driver.Ixgbe.Queue
 import           Lib.Memory
 import           Lib.Pci
-import           Lib.Prelude             hiding ( to )
+import           Lib.Prelude
 
 import           Control.Exception              ( assert )
-import           Control.Lens
 import           Control.Monad.Catch
 import           Control.Monad.Logger
-import qualified Data.ByteString               as B
-import           Data.ByteString.Unsafe
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
-import           Foreign.C.String
 import           Foreign.Marshal.Array          ( peekArray
                                                 , pokeArray
                                                 )
-import           Foreign.Marshal.Utils          ( copyBytes
-                                                , fillBytes
-                                                )
-import           Foreign.Ptr                    ( plusPtr
-                                                , castPtr
-                                                )
+import           Foreign.Marshal.Utils          ( fillBytes )
+import           Foreign.Ptr                    ( plusPtr )
 import           Foreign.Storable               ( sizeOf
                                                 , peek
                                                 , poke
@@ -51,39 +45,27 @@ import           Numeric                        ( showHex )
 import           System.IO.Error                ( userError )
 import           System.Posix.Unistd            ( usleep )
 
--- | The number of descriptors a rx queue manages.
-numRxQueueEntries :: Int
-numRxQueueEntries = 512
-
--- | The number of descriptors a tx queue manages.
-numTxQueueEntries :: Int
-numTxQueueEntries = 512
-
--- | The minimum amount of transmit descriptors to clean in one go.
-txCleanBatch :: Int
-txCleanBatch = 32
-
 -- | Initializes a IXGBE NIC and returns a 'Driver'.
 init
   :: (MonadCatch m, MonadThrow m, MonadIO m, MonadLogger m)
   => BusDeviceFunction -- ^ The 'BusDeviceFunction' of the IXGBE NIC.
   -> Int -- ^ The number of rx queues that will be initialized.
   -> Int -- ^ The number of tx queues that will be initialized.
-  -> m Driver.Device
+  -> m Driver.Driver
 init bdf numRx numTx = do
   $(logInfo) $ "Initializing device " <> unBusDeviceFunction bdf <> "."
   ptr      <- mapResource bdf "resource0"
   (_, dev) <- runStateT
     go
     Device
-      { _devBase     = ptr
-      , _devBdf      = bdf
-      , _devRxQueues = V.empty
-      , _devTxQueues = V.empty
+      { devBase     = ptr
+      , devBdf      = bdf
+      , devRxQueues = V.empty
+      , devTxQueues = V.empty
       }
-  return $ Driver.Device
+  return $! Driver.Driver
     { Driver.receive    = receive dev
-    , Driver.send       = send dev
+    , Driver.send       = undefined
     , Driver.setPromisc = setPromisc dev
     , Driver.stats      = stats dev
     , Driver.dump       = dump dev
@@ -112,12 +94,9 @@ init bdf numRx numTx = do
         mapM startTxQueue $ zip queues [0 ..]
       )
       dev
-    put
-      $  dev
-      &  devRxQueues
-      .~ V.fromList rxQueues
-      &  devTxQueues
-      .~ V.fromList txQueues
+    put $ dev { devRxQueues = V.fromList rxQueues
+              , devTxQueues = V.fromList txQueues
+              }
     liftIO $ setPromisc dev True
     runReaderT (waitForLink 1000) dev
    where
@@ -132,8 +111,6 @@ init bdf numRx numTx = do
       resetMask        = 0x4000008
       disableInterrupt = 0x7FFFFFFF
     initLink = do
-      -- Notice how the first call here is directly overwritten by the second,
-      -- but the original implementation does this.
       R.set R.AUTOC =<< lms <$> R.get R.AUTOC
       R.set R.AUTOC =<< magic <$> R.get R.AUTOC
       R.setMask R.AUTOC anRestart
@@ -142,104 +119,10 @@ init bdf numRx numTx = do
       lms       = (.|. shift 0x3 13) . (.&. complement (shift 0x7 13))
       magic     = (.|. (shift 0x0 7 :: Word32)) . (.&. complement 0x00000180)
 
-  receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
-  receive dev (Driver.QueueId id) batchSize =
-    case (dev ^. devRxQueues) V.!? id of
-      Just queue -> inner queue
-      Nothing    -> return V.empty
-   where
-    inner queue = do
-      !curIndex <- queue ^. rxqIndex
-      let !descPtrs =
-            V.unsafeSlice curIndex batchSize (queue ^. rxqDescriptors)
-          !bufPtrs = V.unsafeSlice curIndex batchSize (queue ^. rxqBuffers)
-      !pkts <- V.mapMaybe identity <$> V.zipWithM readPackets descPtrs bufPtrs
-      let !len = V.length pkts
-      (queue ^. rxqShift) len
-      runReaderT (R.set (R.RDT id) $ fromIntegral (curIndex + len)) dev
-      return pkts
-    readPackets descPtr (bufPtr, bufPhysAddr) = do
-      !descriptor <- peek descPtr
-      if isDone $ rdStatusError descriptor
-        then if not $ isEndOfPacket $ rdStatusError descriptor
-          then throwM $ userError "Multi-segment packets are not supported."
-          else do
-            let !len = fromIntegral $ rdLength descriptor
-            poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
-            Just <$> unsafePackCStringLen (castPtr bufPtr, len)
-        else return Nothing
-     where
-      isDone        = flip testBit 0
-      isEndOfPacket = flip testBit 1
-
-  send
-    :: Device
-    -> Driver.QueueId
-    -> V.Vector ByteString
-    -> IO (Either (V.Vector ByteString) ())
-  send dev (Driver.QueueId id) bufs = case (dev ^. devTxQueues) V.!? id of
-    Just queue -> inner queue
-    Nothing    -> return $ Left bufs
-   where
-    inner queue = do
-      !curIndex    <- queue ^. txqIndex
-      !cleanIndex  <- queue ^. txqCleanIndex
-      !cleanIndex' <- clean curIndex cleanIndex queue
-      let !len = V.length bufs
-          !n   = if curIndex >= cleanIndex'
-            then min (numTxQueueEntries - curIndex + cleanIndex') len
-            else min (cleanIndex' - txCleanBatch - curIndex) len
-          descPtrs = V.unsafeSlice curIndex n (queue ^. txqDescriptors)
-          bufPtrs  = V.unsafeSlice curIndex n (queue ^. txqBuffers)
-      V.mapM_ writeDescriptor $ V.zip3 bufs descPtrs bufPtrs
-      -- Advance tail pointer.
-      (queue ^. txqShift) n
-      (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
-      runReaderT (R.set (R.TDT id) $ fromIntegral (curIndex + n)) dev
-      if n /= len
-        then return $ Left (V.unsafeDrop (len - n) bufs)
-        else return $ Right ()
-    writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) =
-      unsafeUseAsCStringLen buf $ \(ptr, len) -> do
-        copyBytes (castPtr bufPtr) ptr len
-        poke
-          descPtr
-          ReadTx
-            { tdBufAddr      = bufPhysAddr
-            , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
-            , tdOlInfoStatus = fromIntegral $ shift len 14
-            }
-     where
-      cmdTypeLen = (.|.)
-        (   endOfPacket
-        .|. reportStatus
-        .|. frameCheckSequence
-        .|. descExt
-        .|. advDesc
-        )
-       where
-        endOfPacket        = 0x1000000
-        reportStatus       = 0x8000000
-        frameCheckSequence = 0x2000000
-        descExt            = 0x20000000
-        advDesc            = 0x300000
-    clean curIndex cleanIndex queue = do
-      let !cleanAmount = if curIndex >= cleanIndex
-            then curIndex - cleanIndex
-            else numTxQueueEntries - cleanIndex + curIndex
-      if cleanAmount < txCleanBatch
-        then return cleanIndex
-        else do
-          let !descriptors = queue ^. txqDescriptors
-              !cleanBound  = cleanIndex + cleanAmount - 1
-          case descriptors V.!? cleanBound of
-            Just descPtr -> do
-              !descriptor <- peek descPtr
-              return $ if isDone $ tdStatus descriptor
-                then cleanBound
-                else cleanIndex
-            Nothing -> throwM $ userError "Descriptor index was out of bounds."
-      where isDone = flip testBit 0
+  receive :: Device -> Driver.QueueId -> Int -> IO [[Word8]]
+  receive dev (Driver.QueueId id) num = case devRxQueues dev V.!? id of
+    Just queue -> unsafeReceive dev id queue num
+    Nothing    -> return []
 
   stats :: Device -> IO Driver.Stats
   stats = runReaderT
@@ -272,11 +155,69 @@ init bdf numRx numTx = do
     output <- runReaderT R.dumpRegisters dev
     return $ foldr (<>) "" output
 
+unsafeReceive :: Device -> Int -> RxQueue -> Int -> IO [[Word8]]
+unsafeReceive dev id queue num = do
+  index <- readIORef (rxqIndexRef queue)
+  pkts  <- inner index 0
+  let nextIndex = index + length pkts
+  writeIORef (rxqIndexRef queue) nextIndex
+  return pkts
+ where
+  inner rxIndex i = do
+    let !descLen = sizeOf nullReceiveDescriptor
+        !descPtr = rxqDescBase queue `plusPtr` ((rxIndex + i) * descLen)
+    do
+      wbDesc <- peek descPtr
+      if rdStatus wbDesc .&. 0x1 /= 0
+        then if rdStatus wbDesc .&. 0x2 /= 0
+          then throwIO $ userError "Multi-segment packets are not supported."
+          else
+            let bufPtr =
+                  rxqBufBase queue `plusPtr` ((rxIndex + i) * bufferSize)
+                bufPhysAddr =
+                  fromIntegral
+                    $ fromIntegral (rxqBufPhysBase queue)
+                    + ((rxIndex + i) * bufferSize)
+            in  do
+                  buf <- peekArray (fromIntegral $ rdLength wbDesc) bufPtr
+                  poke
+                    descPtr
+                    ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
+                  if i == num - 1
+                    then (buf :) <$> inner rxIndex (i + 1)
+                    else return []
+        else return []
+    -- let (Ptr descAddr) =
+    --       (rxqDescBase queue)
+    --         `plusPtr` ((rxIndex + i) * (sizeOf $ nullReceiveDescriptor))
+    --     statusOffset = 8#
+    --     status       = indexWord8OffAddr# descAddr statusOffset
+    --     statusBit    = 1##
+    -- if eqWord# (and# status statusBit) statusBit
+    --   then
+    --     let eopBit = 2##
+    --     in
+    --       if neWord# (and# status eopBit) eopBit
+    --         then throwIO $ userError "Multi-segment packets are not supported."
+    --         else do
+    --           let (Ptr bufAddr) =
+    --                 (rxqBufBase queue) `plusPtr` ((rxIndex + i) * bufferSize)
+    --               (I64# bufPhysAddr) =
+    --                 fromIntegral
+    --                   $ fromIntegral (rxqBufPhysBase queue)
+    --                   + ((rxIndex + i) * bufferSize)
+    --           undefined
+
+    --   else undefined
+
+unsafeSend :: TxQueue -> V.Vector ByteString -> IO (V.Vector ByteString)
+unsafeSend queue num = undefined
+
 -- | Initialize a number of rx queues.
 initRx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
   => Int -- ^ The amount of queues that will be initialized.
-  -> m [RxQueue] -- ^ The initialized queues.
+  -> m [Ptr ReceiveDescriptor] -- ^ The initialized queues.
 initRx numRx = do
   deviceId <- showDeviceId
   $(logInfo) $ deviceId <> " Initializing " <> show numRx <> " rx queues."
@@ -317,7 +258,7 @@ initRx numRx = do
   initQueue
     :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
     => Int
-    -> m RxQueue
+    -> m (Ptr ReceiveDescriptor)
   initQueue id = do
     deviceId <- showDeviceId
     $(logDebug) $ deviceId <> " Initializing rx queue " <> show id <> "."
@@ -331,7 +272,7 @@ initRx numRx = do
     -- Enable dropping of packets, when all descriptors are full.
     R.setMask (R.SRRCTL id) dropEnable
 
-    let size = numRxQueueEntries * sizeOf (undefined :: ReceiveDescriptor)
+    let size = numRxQueueEntries * (sizeOf $ nullReceiveDescriptor)
     descPtr  <- allocateDescriptors size
 
     -- Setup descriptor ring.
@@ -354,34 +295,13 @@ initRx numRx = do
     R.set (R.RDH id) 0
     R.set (R.RDT id) 0
 
-    -- Setup RxQueue.
-    indexRef <- liftIO $ newIORef (0 :: Int)
-    -- We essentially generate two copies of the descriptor vector and append it.
-    -- So we can slice from the vector without weird wrapping action and the vector is
-    -- immutable anyway.
-    let
-      descPtrs = V.generate
-        (2 * numRxQueueEntries)
-        (generatePtrs descPtr
-                      (sizeOf (undefined :: ReceiveDescriptor))
-                      numRxQueueEntries
-        )
-      fIndex = readIORef indexRef
-      fShift n = modifyIORef'
-        indexRef
-        (\current -> (current + n) `mod` numRxQueueEntries)
-    return RxQueue
-      { _rxqDescriptors = descPtrs
-      , _rxqBuffers     = undefined
-      , _rxqIndex       = fIndex
-      , _rxqShift       = fShift
-      }
+    return $! descPtr
     where dropEnable = 0x10000000
 startRxQueue
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-  => (RxQueue, Int)
+  => (Ptr ReceiveDescriptor, Int)
   -> m RxQueue
-startRxQueue (queue, id) = do
+startRxQueue (descPtr, id) = do
   deviceId <- showDeviceId
   $(logDebug) $ deviceId <> " Starting rx queue " <> show id <> "."
 
@@ -390,14 +310,8 @@ startRxQueue (queue, id) = do
   -- and do not change this anymore.
   let size = assert (numRxQueueEntries .&. (numRxQueueEntries - 1) == 0)
                     (numRxQueueEntries * 2048)
-  bufPtr <- allocateRaw size False
-  -- Again, look at how the descriptor vector in initQueue is generated to
-  -- understand this.
-  -- Map the buffers to their descriptors now.
-  let descPtrs = queue ^. rxqDescriptors
-  bufPtrs <- V.generateM (2 * numRxQueueEntries)
-                         (generateBufPtrs bufPtr numRxQueueEntries)
-  V.zipWithM_ writeDescriptor descPtrs bufPtrs
+  bufPtr <- allocateRaw size True
+  queue  <- mkRxQueueM descPtr bufPtr
 
   -- Enable queue and wait.
   R.setMask (R.RXDCTL id) rxdctlEnable
@@ -407,17 +321,14 @@ startRxQueue (queue, id) = do
   R.set (R.RDH id) 0
   R.set (R.RDT id) $ fromIntegral (numRxQueueEntries - 1)
 
-  return $ queue & rxqBuffers .~ bufPtrs
- where
-  rxdctlEnable = 0x02000000
-  writeDescriptor descPtr (bufPtr, bufPhysAddr) = do
-    liftIO $ poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
+  return $! queue
+  where rxdctlEnable = 0x02000000
 
--- | Initialize a number of tx queues.
+
 initTx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
   => Int -- ^ The amount of tx queues that will be initialized.
-  -> m [TxQueue] -- ^ The initialized tx queues.
+  -> m [Ptr TransmitDescriptor] -- ^ The initialized tx queues.
 initTx numTx = do
   deviceId <- showDeviceId
   $(logInfo) $ deviceId <> " Initializing " <> show numTx <> " tx queues."
@@ -449,13 +360,13 @@ initTx numTx = do
   initQueue
     :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
     => Int
-    -> m TxQueue
+    -> m (Ptr TransmitDescriptor)
   initQueue id = do
     deviceId <- showDeviceId
     $(logDebug) $ deviceId <> " Initializing tx queue " <> show id <> "."
 
     -- Setup descriptor ring.
-    let size = numTxQueueEntries * sizeOf (undefined :: TransmitDescriptor)
+    let size = numTxQueueEntries * (sizeOf $ nullTransmitDescriptor)
     descPtr  <- allocateDescriptors size
 
     physAddr <- translate descPtr
@@ -476,41 +387,16 @@ initTx numTx = do
     -- Descriptor writeback magic values.
     R.set (R.TXDCTL id) =<< wbMagic <$> R.get (R.TXDCTL id)
 
-    -- Setup TxQueue.
-    indexRef <- liftIO $ newIORef (0 :: Int)
-    cleanRef <- liftIO $ newIORef (0 :: Int)
-    let
-      descPtrs = V.generate
-        (2 * numTxQueueEntries)
-        (generatePtrs descPtr
-                      (sizeOf (undefined :: TransmitDescriptor))
-                      numTxQueueEntries
-        )
-      fIndex = readIORef indexRef
-      fClean = readIORef cleanRef
-      fShift n = modifyIORef'
-        indexRef
-        (\current -> (current + n) `mod` numTxQueueEntries)
-      fCleanShift n = modifyIORef'
-        cleanRef
-        (\current -> (current + n) `mod` numTxQueueEntries)
-    return TxQueue
-      { _txqDescriptors = descPtrs
-      , _txqBuffers     = undefined
-      , _txqIndex       = fIndex
-      , _txqCleanIndex  = fClean
-      , _txqShift       = fShift
-      , _txqCleanShift  = fCleanShift
-      }
+    return $! descPtr
    where
     wbMagic =
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
         . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
 startTxQueue
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
-  => (TxQueue, Int)
+  => (Ptr TransmitDescriptor, Int)
   -> m TxQueue
-startTxQueue (queue, id) = do
+startTxQueue (descPtr, id) = do
   deviceId <- showDeviceId
   $(logDebug) $ deviceId <> " Starting tx queue " <> show id <> "."
 
@@ -518,9 +404,7 @@ startTxQueue (queue, id) = do
   -- This differs from ixy.
   let size = assert (numTxQueueEntries .&. (numTxQueueEntries - 1) == 0)
                     (numTxQueueEntries * 2048)
-  bufPtr  <- allocateRaw size False
-  bufPtrs <- V.generateM (2 * numTxQueueEntries)
-                         (generateBufPtrs bufPtr numTxQueueEntries)
+  bufPtr <- allocateRaw size True
 
   -- Tx starts out empty.
   R.set (R.TDH id) 0
@@ -530,7 +414,7 @@ startTxQueue (queue, id) = do
   R.setMask (R.TXDCTL id) txdctlEnable
   R.waitSet (R.TXDCTL id) txdctlEnable
 
-  return $ queue & txqBuffers .~ bufPtrs
+  mkTxQueueM descPtr bufPtr
   where txdctlEnable = 0x2000000
 
 -- | Wait until the device has set up the link and the link speed is available,
@@ -583,16 +467,7 @@ linkSpeed = do
 showDeviceId :: (MonadReader Device m) => m Text
 showDeviceId = do
   dev <- ask
-  return $ "[" <> (dev ^. devBdf . to unBusDeviceFunction) <> "]"
-
-generatePtrs :: Ptr a -> Int -> Int -> Int -> Ptr a
-generatePtrs ptr offset num i = ptr `plusPtr` ((i `mod` num) * offset)
-
-generateBufPtrs :: (MonadIO m) => Ptr a -> Int -> Int -> m (Ptr Word8, PhysAddr)
-generateBufPtrs ptr num i = do
-  let bufPtr = ptr `plusPtr` ((i `rem` num) * 2048)
-  bufPhysAddr <- translate bufPtr
-  return (bufPtr, bufPhysAddr)
+  return $ "[" <> (unBusDeviceFunction $ devBdf dev) <> "]"
 
 allocateDescriptors
   :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
@@ -600,3 +475,150 @@ allocateDescriptors size = do
   descPtr <- allocateRaw size True
   liftIO $ fillBytes descPtr 0xFF size
   return descPtr
+--module Lib.Driver.Ixgbe
+--  ( init
+--  )
+--where
+
+--import qualified Lib.Driver                    as Driver
+--import qualified Lib.Driver.Ixgbe.Register     as R
+--import           Lib.Driver.Ixgbe.Types
+--import           Lib.Memory
+--import           Lib.Pci
+--import           Lib.Prelude             hiding ( to )
+
+--import           Control.Lens
+--import           Control.Monad.Catch
+--import           Control.Monad.Logger
+--import qualified Data.ByteString               as B
+--import           Data.ByteString.Unsafe
+--import           Data.IORef
+--import qualified Data.Text                     as T
+--import qualified Data.Vector                   as V
+--import           Foreign.C.String
+--import           Foreign.Marshal.Array          ( peekArray
+--                                                , pokeArray
+--                                                )
+--import           Foreign.Ptr                    ( plusPtr
+--                                                , castPtr
+--                                                )
+--                                                , peek
+--                                                , poke
+--                                                )
+--import           Numeric                        ( showHex )
+--import           System.IO.Error                ( userError )
+
+---- | The number of descriptors a rx queue manages.
+--numRxQueueEntries :: Int
+--numRxQueueEntries = 512
+
+---- | The number of descriptors a tx queue manages.
+--numTxQueueEntries :: Int
+--numTxQueueEntries = 512
+
+---- | The minimum amount of transmit descriptors to clean in one go.
+--txCleanBatch :: Int
+--txCleanBatch = 32
+
+
+--  receive :: Device -> Driver.QueueId -> Int -> IO (V.Vector ByteString)
+--  receive dev (Driver.QueueId id) batchSize =
+--    case (dev ^. devRxQueues) V.!? id of
+--      Just queue -> inner queue
+--      Nothing    -> return V.empty
+--   where
+--    inner queue = do
+--      !curIndex <- queue ^. rxqIndex
+--      let !descPtrs =
+--            V.unsafeSlice curIndex batchSize (queue ^. rxqDescriptors)
+--          !bufPtrs = V.unsafeSlice curIndex batchSize (queue ^. rxqBuffers)
+--      !pkts <- V.mapMaybe identity <$> V.zipWithM readPackets descPtrs bufPtrs
+--      let !len = V.length pkts
+--      (queue ^. rxqShift) len
+--      runReaderT (R.set (R.RDT id) $ fromIntegral (curIndex + len)) dev
+--      return pkts
+--    readPackets descPtr (bufPtr, bufPhysAddr) = do
+--      !descriptor <- peek descPtr
+--      if isDone $ rdStatusError descriptor
+--        then if not $ isEndOfPacket $ rdStatusError descriptor
+--          then throwM $ userError "Multi-segment packets are not supported."
+--          else do
+--            let !len = fromIntegral $ rdLength descriptor
+--            poke descPtr ReadRx {rdPacketAddr = bufPhysAddr, rdHeaderAddr = 0}
+--            Just <$> unsafePackCStringLen (castPtr bufPtr, len)
+--        else return Nothing
+--     where
+--      isDone        = flip testBit 0
+--      isEndOfPacket = flip testBit 1
+
+--  send
+--    :: Device
+--    -> Driver.QueueId
+--    -> V.Vector ByteString
+--    -> IO (Either (V.Vector ByteString) ())
+--  send dev (Driver.QueueId id) bufs = case (dev ^. devTxQueues) V.!? id of
+--    Just queue -> inner queue
+--    Nothing    -> return $ Left bufs
+--   where
+--    inner queue = do
+--      !curIndex    <- queue ^. txqIndex
+--      !cleanIndex  <- queue ^. txqCleanIndex
+--      !cleanIndex' <- clean curIndex cleanIndex queue
+--      let !len = V.length bufs
+--          !n   = if curIndex >= cleanIndex'
+--            then min (numTxQueueEntries - curIndex + cleanIndex') len
+--            else min (cleanIndex' - txCleanBatch - curIndex) len
+--          descPtrs = V.unsafeSlice curIndex n (queue ^. txqDescriptors)
+--          bufPtrs  = V.unsafeSlice curIndex n (queue ^. txqBuffers)
+--      V.mapM_ writeDescriptor $ V.zip3 bufs descPtrs bufPtrs
+--      -- Advance tail pointer.
+--      (queue ^. txqShift) n
+--      (queue ^. txqCleanShift) $ cleanIndex' - cleanIndex
+--      runReaderT (R.set (R.TDT id) $ fromIntegral (curIndex + n)) dev
+--      if n /= len
+--        then return $ Left (V.unsafeDrop (len - n) bufs)
+--        else return $ Right ()
+--    writeDescriptor (buf, descPtr, (bufPtr, bufPhysAddr)) =
+--      unsafeUseAsCStringLen buf $ \(ptr, len) -> do
+--        copyBytes (castPtr bufPtr) ptr len
+--        poke
+--          descPtr
+--          ReadTx
+--            { tdBufAddr      = bufPhysAddr
+--            , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
+--            , tdOlInfoStatus = fromIntegral $ shift len 14
+--            }
+--     where
+--      cmdTypeLen = (.|.)
+--        (   endOfPacket
+--        .|. reportStatus
+--        .|. frameCheckSequence
+--        .|. descExt
+--        .|. advDesc
+--        )
+--       where
+--        endOfPacket        = 0x1000000
+--        reportStatus       = 0x8000000
+--        frameCheckSequence = 0x2000000
+--        descExt            = 0x20000000
+--        advDesc            = 0x300000
+--    clean curIndex cleanIndex queue = do
+--      let !cleanAmount = if curIndex >= cleanIndex
+--            then curIndex - cleanIndex
+--            else numTxQueueEntries - cleanIndex + curIndex
+--      if cleanAmount < txCleanBatch
+--        then return cleanIndex
+--        else do
+--          let !descriptors = queue ^. txqDescriptors
+--              !cleanBound  = cleanIndex + cleanAmount - 1
+--          case descriptors V.!? cleanBound of
+--            Just descPtr -> do
+--              !descriptor <- peek descPtr
+--              return $ if isDone $ tdStatus descriptor
+--                then cleanBound
+--                else cleanIndex
+--            Nothing -> throwM $ userError "Descriptor index was out of bounds."
+--      where isDone = flip testBit 0
+
+
+-- | Initialize a number of tx queues.

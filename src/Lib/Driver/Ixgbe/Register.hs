@@ -26,7 +26,8 @@ where
 import           Lib.Prelude             hiding ( get
                                                 , mask
                                                 )
-import           Lib.Driver.Ixgbe.Types
+
+import           Lib.Driver.Ixgbe.Device
 
 import           Control.Lens            hiding ( set )
 import           Data.Bits                      ( (.&.)
@@ -208,12 +209,12 @@ instance Enum Register where
 set :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 set register value = do
   dev <- ask
-  liftIO $ pokeByteOff (dev ^. devBase) (fromEnum register) value
+  liftIO $ pokeByteOff (devBase dev) (fromEnum register) value
 
 get :: (MonadIO m, MonadReader Device m) => Register -> m Word32
 get register = do
   dev <- ask
-  liftIO $ peekByteOff (dev ^. devBase) $ fromEnum register
+  liftIO $ peekByteOff (devBase dev) $ fromEnum register
 
 setMask :: (MonadIO m, MonadReader Device m) => Register -> Word32 -> m ()
 setMask register mask = do

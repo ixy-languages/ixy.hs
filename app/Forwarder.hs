@@ -26,7 +26,7 @@ run = do
   counter <- liftIO $ newIORef (0 :: Int)
   liftIO $ loop counter dev1 dev2
 
-loop :: IORef Int -> Device -> Device -> IO ()
+loop :: IORef Int -> Driver -> Driver -> IO ()
 loop counter dev1 dev2 = do
   let clock = Monotonic
   timeRef <- newIORef (TimeSpec {sec = 0, nsec = 0})
@@ -47,7 +47,7 @@ loop counter dev1 dev2 = do
             !st1 <- stats dev1
             !st2 <- stats dev2
             putStrLn
-              ("Device 1 -> RX: "
+              ("Driver 1 -> RX: "
               <> show (fromIntegral (stRxPkts st1) / 1000000)
               <> "Mpps, "
               <> show (fromIntegral (stRxBytes st1) / 1000000)
@@ -58,7 +58,7 @@ loop counter dev1 dev2 = do
               <> " MBit/s" :: Text
               )
             putStrLn
-              ("Device 2 -> RX: "
+              ("Driver 2 -> RX: "
               <> show (fromIntegral (stRxPkts st2) / 1000000)
               <> "Mpps, "
               <> show (fromIntegral (stRxBytes st2) / 1000000)
@@ -73,16 +73,9 @@ loop counter dev1 dev2 = do
       )
     modifyIORef' counter (+ 1)
 
-forward :: Device -> Device -> IO ()
+forward :: Driver -> Driver -> IO ()
 forward rxDev txDev = do
   !pkts <- receive rxDev (QueueId 0) 128
-  unless
-    (V.null pkts)
-    (do
-      let !touchedPkts = map touchPacket pkts
-      _ <- send txDev (QueueId 0) touchedPkts
-      return ()
-    )
+  unless (null pkts) (return ())
   return ()
-  where touchPacket b = (B.head b + 1) `B.cons` B.tail b
 

@@ -11,7 +11,7 @@
 --
 module Lib.Driver
   ( QueueId(QueueId)
-  , Device(..)
+  , Driver(..)
   , Stats(..)
   )
 where
@@ -24,8 +24,8 @@ import qualified Data.Vector                   as V
 newtype QueueId = QueueId Int
 
 -- | A collection of functions that can be executed on a device by a driver.
-data Device = Device { send :: QueueId -> V.Vector ByteString -> IO (Either (V.Vector ByteString) ())
-                     , receive :: QueueId -> Int -> IO (V.Vector ByteString)
+data Driver = Driver { send :: QueueId -> V.Vector ByteString -> IO (V.Vector ByteString)
+                     , receive :: QueueId -> Int -> IO [[Word8]]
                      , stats :: IO Stats
                      , setPromisc :: Bool -> IO ()
                      , dump :: IO Text }

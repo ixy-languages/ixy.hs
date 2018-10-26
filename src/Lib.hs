@@ -12,7 +12,7 @@
 --
 module Lib
   ( -- * Driver
-    Driver.Device(..)
+    Driver.Driver(..)
   , newDriver
   , Driver.QueueId(..)
   , Driver.Stats(..)
@@ -35,7 +35,7 @@ newDriver
   => Text -- ^ The 'BusDeviceFunction' of the device.
   -> Int -- ^ The number of rx queues to initialize.
   -> Int -- ^ The number of tx queues to initialize.
-  -> m (Maybe Driver.Device)
+  -> m (Maybe Driver.Driver)
 newDriver bdfT numRx numTx = case busDeviceFunction bdfT of
   Just bdf -> do
     !dev <- init bdf numRx numTx
