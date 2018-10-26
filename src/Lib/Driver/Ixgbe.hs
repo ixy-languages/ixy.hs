@@ -169,7 +169,7 @@ unsafeReceive dev id queue num = do
     do
       wbDesc <- peek descPtr
       if rdStatus wbDesc .&. 0x1 /= 0
-        then if rdStatus wbDesc .&. 0x2 /= 0
+        then if rdStatus wbDesc .&. 0x2 == 0
           then throwIO $ userError "Multi-segment packets are not supported."
           else
             let bufPtr =

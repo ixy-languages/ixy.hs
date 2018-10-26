@@ -29,7 +29,6 @@ import           Lib.Prelude             hiding ( get
 
 import           Lib.Driver.Ixgbe.Device
 
-import           Control.Lens            hiding ( set )
 import           Data.Bits                      ( (.&.)
                                                 , (.|.)
                                                 , complement
