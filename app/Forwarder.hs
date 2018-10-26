@@ -50,22 +50,22 @@ loop counter dev1 dev2 = do
               ("Driver 1 -> RX: "
               <> show (fromIntegral (stRxPkts st1) / 1000000)
               <> "Mpps, "
-              <> show (fromIntegral (stRxBytes st1) / 1000000)
+              <> show (fromIntegral (stRxBytes st1) / 100000)
               <> " MBit/s | TX: "
               <> show (fromIntegral (stTxPkts st1) / 1000000)
               <> "Mpps, "
-              <> show (fromIntegral (stTxBytes st1) / 1000000)
+              <> show (fromIntegral (stTxBytes st1) / 100000)
               <> " MBit/s" :: Text
               )
             putStrLn
               ("Driver 2 -> RX: "
               <> show (fromIntegral (stRxPkts st2) / 1000000)
               <> "Mpps, "
-              <> show (fromIntegral (stRxBytes st2) / 1000000)
+              <> show (fromIntegral (stRxBytes st2) / 100000)
               <> " MBit/s | TX: "
               <> show (fromIntegral (stTxPkts st2) / 1000000)
               <> "Mpps, "
-              <> show (fromIntegral (stTxBytes st2) / 1000000)
+              <> show (fromIntegral (stTxBytes st2) / 100000)
               <> " MBit/s" :: Text
               )
             writeIORef timeRef t
