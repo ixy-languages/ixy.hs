@@ -153,7 +153,7 @@ init bdf numRx numTx = do
             if i == num - 1
               then return [buf]
               else (buf :) <$> inner queue (i + 1)
-        else return [[]]
+        else return []
 
   send :: Device -> Driver.QueueId -> [[Word8]] -> IO ()
   send dev (Driver.QueueId id) buffers = case devTxQueues dev V.!? id of
@@ -170,7 +170,7 @@ init bdf numRx numTx = do
       cleanIndex <- readIORef (txqCleanRef queue)
       let cleanable = if curIndex - cleanIndex >= 0
             then curIndex - cleanIndex
-            else numTxQueueEntries + cleanable
+            else numTxQueueEntries + (curIndex - cleanIndex)
       if cleanable < txCleanBatch
         then return ()
         else do
