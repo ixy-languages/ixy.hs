@@ -157,7 +157,8 @@ init bdf numRx numTx = do
   send dev (Driver.QueueId id) buffers = case devTxQueues dev V.!? id of
     Just queue -> do
       clean queue
-      inner queue buffers
+      cleanIndex <- readIORef (txqCleanRef queue)
+      inner queue cleanIndex buffers
       nextIndex <- readIORef (txqIndexRef queue)
       runReaderT (R.set (R.TDT id) $ fromIntegral nextIndex) dev
     Nothing -> return ()
@@ -185,23 +186,19 @@ init bdf numRx numTx = do
               (txqCleanRef queue)
               (\current -> (current + cleanupTo) `mod` numTxQueueEntries)
             )
-    inner queue (buf : bufs) = do
-      curIndex   <- readIORef (txqIndexRef queue)
-      cleanIndex <- readIORef (txqCleanRef queue)
+    inner queue cleanIndex (buf : bufs) = do
+      curIndex <- readIORef (txqIndexRef queue)
       let nextIndex = (curIndex + 1) `mod` numTxQueueEntries
       unless
         (cleanIndex == nextIndex)
         (do
-          writeIORef (txqIndexRef queue)
-            $     (curIndex + 1)
-            `mod` numTxQueueEntries
           let
             descPtr =
               txqDescBase queue
-                `plusPtr` (nextIndex * sizeOf nullReceiveDescriptor)
-            bufPtr = txqBufBase queue `plusPtr` (nextIndex * bufferSize)
+                `plusPtr` (curIndex * sizeOf nullReceiveDescriptor)
+            bufPtr = txqBufBase queue `plusPtr` (curIndex * bufferSize)
             bufPhysAddr =
-              txqBufPhysBase queue + fromIntegral (nextIndex * bufferSize)
+              txqBufPhysBase queue + fromIntegral (curIndex * bufferSize)
             len = length buf
           pokeArray bufPtr buf
           poke
@@ -211,7 +208,9 @@ init bdf numRx numTx = do
               , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
               , tdOlInfoStatus = fromIntegral $ shift len 14
               }
-          inner queue bufs
+          modifyIORef' (txqIndexRef queue)
+                       (\c -> (c + 1) `mod` numTxQueueEntries)
+          inner queue cleanIndex bufs
         )
      where
       cmdTypeLen = (.|.)
@@ -227,7 +226,7 @@ init bdf numRx numTx = do
         frameCheckSequence = 0x2000000
         descExt            = 0x20000000
         advDesc            = 0x300000
-    inner queue [] = return ()
+    inner _ _ [] = return ()
 
   stats :: Device -> IO Driver.Stats
   stats = runReaderT
