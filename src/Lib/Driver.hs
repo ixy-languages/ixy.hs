@@ -24,7 +24,7 @@ import qualified Data.Vector                   as V
 newtype QueueId = QueueId Int
 
 -- | A collection of functions that can be executed on a device by a driver.
-data Driver = Driver { send :: QueueId -> V.Vector ByteString -> IO (V.Vector ByteString)
+data Driver = Driver { send :: QueueId -> [[Word8]]-> IO ()
                      , receive :: QueueId -> Int -> IO [[Word8]]
                      , stats :: IO Stats
                      , setPromisc :: Bool -> IO ()
