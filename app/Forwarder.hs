@@ -76,6 +76,6 @@ loop counter dev1 dev2 = do
 forward :: Driver -> Driver -> IO ()
 forward rxDev txDev = do
   !pkts <- receive rxDev (QueueId 0) 128
-  unless (null pkts) (return ())
+  unless (null pkts) (send txDev (QueueId 0) pkts)
   return ()
 

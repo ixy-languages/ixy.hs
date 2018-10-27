@@ -68,7 +68,7 @@ init bdf numRx numTx = do
       }
   return $! Driver.Driver
     { Driver.receive    = receive dev
-    , Driver.send       = undefined
+    , Driver.send       = send dev
     , Driver.setPromisc = setPromisc dev
     , Driver.stats      = stats dev
     , Driver.dump       = dump dev
@@ -158,6 +158,8 @@ init bdf numRx numTx = do
     Just queue -> do
       clean queue
       inner queue buffers
+      nextIndex <- readIORef (txqIndexRef queue)
+      runReaderT (R.set (R.TDT id) $ fromIntegral nextIndex) dev
     Nothing -> return ()
    where
     clean queue = do
