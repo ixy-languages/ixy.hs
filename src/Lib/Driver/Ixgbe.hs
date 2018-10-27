@@ -198,12 +198,10 @@ init bdf numRx numTx = do
           let
             descPtr =
               txqDescBase queue
-                `plusPtr` ((curIndex + 1) `mod` numTxQueueEntries)
-            bufPtr =
-              txqBufBase queue
-                `plusPtr` ((curIndex + 1) `mod` numTxQueueEntries)
-            bufPhysAddr = txqBufPhysBase queue
-              + fromIntegral ((curIndex + 1) `mod` numTxQueueEntries)
+                `plusPtr` (nextIndex * sizeOf nullReceiveDescriptor)
+            bufPtr = txqBufBase queue `plusPtr` (nextIndex * bufferSize)
+            bufPhysAddr =
+              txqBufPhysBase queue + fromIntegral (nextIndex * bufferSize)
             len = length buf
           pokeArray bufPtr buf
           poke
