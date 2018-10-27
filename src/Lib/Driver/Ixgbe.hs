@@ -124,8 +124,35 @@ init bdf numRx numTx = do
 
   receive :: Device -> Driver.QueueId -> Int -> IO [[Word8]]
   receive dev (Driver.QueueId id) num = case devRxQueues dev V.!? id of
-    Just queue -> unsafeReceive dev id queue num
-    Nothing    -> return []
+    Just queue -> do
+      lastRxIndex <- readIORef (rxqIndexRef queue)
+      bufs        <- inner queue 0
+      nextIndex   <- readIORef (rxqIndexRef queue)
+      when (nextIndex /= lastRxIndex)
+           (runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev)
+      return bufs
+    Nothing -> return []
+   where
+    inner queue i = do
+      rxIndex <- readIORef (rxqIndexRef queue)
+      let descPtr =
+            rxqDescBase queue `plusPtr` (rxIndex * sizeOf nullReceiveDescriptor)
+      descriptor <- peek descPtr
+      let status = rdStatus descriptor
+      if status .&. 0x1 /= 0 || i == num
+        then if status .&. 0x2 == 0
+          then throwIO $ userError "Multi-segment packets are not supported."
+          else do
+            let bufPtr = rxqBufBase queue `plusPtr` (rxIndex * bufferSize)
+                bufPhysAddr =
+                  rxqBufPhysBase queue + fromIntegral (rxIndex * bufferSize)
+            buf <- peekArray (fromIntegral $ rdLength descriptor) bufPtr
+            poke descPtr
+                 ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
+            modifyIORef' (rxqIndexRef queue) (+ 1)
+            (buf :) <$> inner queue (i + 1)
+        else return []
+
 
   stats :: Device -> IO Driver.Stats
   stats = runReaderT
@@ -158,59 +185,60 @@ init bdf numRx numTx = do
     output <- runReaderT R.dumpRegisters dev
     return $ foldr (<>) "" output
 
-unsafeReceive :: Device -> Int -> RxQueue -> Int -> IO [[Word8]]
-unsafeReceive dev id queue num = do
-  index <- readIORef (rxqIndexRef queue)
-  pkts  <- inner index 0
-  let nextIndex = (index + length pkts) `mod` numRxQueueEntries
-  runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev
-  writeIORef (rxqIndexRef queue) nextIndex
-  return pkts
- where
-  inner rxIndex i = do
-    let !descLen = sizeOf nullReceiveDescriptor
-        !offset  = (rxIndex + i) `mod` numRxQueueEntries
-        !descPtr = rxqDescBase queue `plusPtr` (offset * descLen)
-    do
-      wbDesc <- peek descPtr
-      if rdStatus wbDesc .&. 0x1 /= 0
-        then if rdStatus wbDesc .&. 0x2 == 0
-          then throwIO $ userError "Multi-segment packets are not supported."
-          else
-            let bufPtr = rxqBufBase queue `plusPtr` (offset * bufferSize)
-                bufPhysAddr =
-                  fromIntegral
-                    $ fromIntegral (rxqBufPhysBase queue)
-                    + (offset * bufferSize)
-            in  do
-                  buf <- peekArray (fromIntegral $ rdLength wbDesc) bufPtr
-                  poke
-                    descPtr
-                    ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
-                  if i == num - 1
-                    then (buf :) <$> inner rxIndex (i + 1)
-                    else return []
-        else return []
+-- unsafeReceive :: Device -> Int -> RxQueue -> Int -> IO [[Word8]]
+-- unsafeReceive dev id queue num = undefined
+--   where inner i = do
 
-unsafeSend :: Device -> Int -> TxQueue -> [[Word8]] -> IO [[Word8]]
-unsafeSend dev id queue num = do
-  index      <- readIORef (txqIndexRef queue)
-  cleanIndex <- readIORef (txqCleanRef queue)
-  undefined
- where
-  clean curIndex cleanIndex = do
-    let cleanable = if curIndex - cleanIndex >= 0
-          then curIndex - cleanIndex
-          else numTxQueueEntries + (curIndex - cleanIndex)
-    if cleanable >= txCleanBatch
-      then do
-        let cleanupTo  = cleanIndex + txCleanBatch - 1
-            cleanupTo' = if cleanupTo >= numTxQueueEntries
-              then cleanupTo - numTxQueueEntries
-              else cleanupTo
-            -- descPtr = (txqDescBase queue) `plusPtr` 
-        undefined
-      else return cleanIndex
+  -- index <- readIORef (rxqIndexRef queue)
+  -- pkts  <- inner index 0
+  -- let nextIndex = (index + length pkts) `mod` numRxQueueEntries
+  -- runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev
+  -- writeIORef (rxqIndexRef queue) nextIndex
+  -- return pkts
+ -- where
+  -- inner rxIndex i = do
+  --   let !descLen = sizeOf nullReceiveDescriptor
+  --       !offset  = (rxIndex + i) `mod` numRxQueueEntries
+  --       !descPtr = rxqDescBase queue `plusPtr` (offset * descLen)
+  --   do
+  --     wbDesc <- peek descPtr
+  --     if rdStatus wbDesc .&. 0x1 /= 0
+  --       then if rdStatus wbDesc .&. 0x2 == 0
+  --         then throwIO $ userError "Multi-segment packets are not supported."
+  --         else
+  --           let bufPtr = rxqBufBase queue `plusPtr` (offset * bufferSize)
+  --               bufPhysAddr =
+  --                 fromIntegral
+  --                   $ fromIntegral (rxqBufPhysBase queue)
+  --                   + (offset * bufferSize)
+  --           in  do
+  --                 buf <- peekArray (fromIntegral $ rdLength wbDesc) bufPtr
+  --                 poke
+  --                   descPtr
+  --                   ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
+  --                 if i == num - 1
+  --                   then (buf :) <$> inner rxIndex (i + 1)
+  --                   else return []
+  --       else return []
+
+-- unsafeSend :: Device -> Int -> TxQueue -> [[Word8]] -> IO [[Word8]]
+-- unsafeSend dev id queue num = do
+--   index      <- readIORef (txqIndexRef queue)
+--   cleanIndex <- readIORef (txqCleanRef queue)
+--   undefined
+--  where
+--   clean curIndex cleanIndex = do
+--     let cleanable = if curIndex - cleanIndex >= 0
+--           then curIndex - cleanIndex
+--           else numTxQueueEntries + (curIndex - cleanIndex)
+--     if cleanable >= txCleanBatch
+--       then do
+--         let cleanupTo  = cleanIndex + txCleanBatch - 1
+--             cleanupTo' = if cleanupTo >= numTxQueueEntries
+--               then cleanupTo - numTxQueueEntries
+--               else cleanupTo
+--         undefined
+--       else return cleanIndex
 
 wrapRing :: Int -> Int -> Int
 wrapRing index m = (index + 1) `mod` m
