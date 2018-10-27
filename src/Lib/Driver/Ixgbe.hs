@@ -139,7 +139,7 @@ init bdf numRx numTx = do
             rxqDescBase queue `plusPtr` (rxIndex * sizeOf nullReceiveDescriptor)
       descriptor <- peek descPtr
       let status = rdStatus descriptor
-      if status .&. 0x1 /= 0 || i == num
+      if status .&. 0x1 /= 0
         then if status .&. 0x2 == 0
           then throwIO $ userError "Multi-segment packets are not supported."
           else do
@@ -150,8 +150,10 @@ init bdf numRx numTx = do
             poke descPtr
                  ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
             modifyIORef' (rxqIndexRef queue) (+ 1)
-            (buf :) <$> inner queue (i + 1)
-        else return []
+            if i == num - 1
+              then return [buf]
+              else (buf :) <$> inner queue (i + 1)
+        else return [[]]
 
   send :: Device -> Driver.QueueId -> [[Word8]] -> IO ()
   send dev (Driver.QueueId id) buffers = case devTxQueues dev V.!? id of
@@ -181,7 +183,7 @@ init bdf numRx numTx = do
                 `plusPtr` (cleanupTo * sizeOf nullTransmitDescriptor)
           descriptor <- peek descPtr
           when
-            (rdStatus descriptor .&. 0x1 /= 0)
+            (tdStatus descriptor .&. 0x1 /= 0)
             (modifyIORef'
               (txqCleanRef queue)
               (\current -> (current + cleanupTo) `mod` numTxQueueEntries)
@@ -208,8 +210,7 @@ init bdf numRx numTx = do
               , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
               , tdOlInfoStatus = fromIntegral $ shift len 14
               }
-          modifyIORef' (txqIndexRef queue)
-                       (\c -> (c + 1) `mod` numTxQueueEntries)
+          writeIORef (txqIndexRef queue) nextIndex
           inner queue cleanIndex bufs
         )
      where

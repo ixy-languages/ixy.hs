@@ -35,7 +35,7 @@ nullReceiveDescriptor = ReceiveRead {rdBufPhysAddr = 0, rdHeaderAddr = 0}
 data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: Word64
                                      , rdHeaderAddr :: Word64 }
                        | ReceiveWriteback { rdStatus :: Word32
-                                          , rdLength :: Word16}
+                                          , rdLength :: Word16} deriving (Show)
 
 instance Storable ReceiveDescriptor where
   sizeOf _ = 16
@@ -57,7 +57,7 @@ data TransmitDescriptor = TransmitRead { tdBufPhysAddr :: Word64
                                        , tdCmdTypeLen  :: Word32
                                        , tdOlInfoStatus :: Word32
                                        }
-                        | TransmitWriteback {tdStatus :: Word32}
+                        | TransmitWriteback {tdStatus :: Word32} deriving (Show)
 
 instance Storable TransmitDescriptor where
   sizeOf _ = 16
