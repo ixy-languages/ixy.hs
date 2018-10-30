@@ -132,7 +132,7 @@ init bdf numRx numTx = do
       let index = rxIndex + i `mod` numRxQueueEntries
       if i == num
         then do
-          writeTail (index - 1)
+          writeTail rxIndex
           return []
         else do
           descriptor <- peek (rxqDescriptor queue index)
@@ -146,7 +146,7 @@ init bdf numRx numTx = do
                 resetReceiveDescriptor queue index bufPhysAddr
                 (buffer :) <$> inner queue (i + 1)
             else do
-              writeTail (index - 1)
+              writeTail rxIndex
               return []
      where
       writeTail newIndex = do
