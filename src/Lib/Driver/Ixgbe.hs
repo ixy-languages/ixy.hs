@@ -159,7 +159,13 @@ init bdf numRx numTx = do
       clean queue
       inner queue buffers
       newIndex <- readIORef (txqIndexRef queue)
-      runReaderT (R.set (R.TDT id) $ fromIntegral (newIndex - 1)) dev
+      runReaderT
+        (     R.set (R.TDT id)
+        $     fromIntegral
+        $     (newIndex - 1)
+        `mod` numRxQueueEntries
+        )
+        dev
     Nothing -> return ()
    where
     clean queue = do
