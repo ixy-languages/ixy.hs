@@ -151,7 +151,7 @@ init bdf numRx numTx = do
      where
       writeTail newIndex = do
         runReaderT (R.set (R.RDH id) $ fromIntegral newIndex) dev
-        writeIORef (rxqIndexRef queue) newIndex
+        writeIORef (rxqIndexRef queue) $ (newIndex + 1) `mod` numRxQueueEntries
 
   send :: Device -> Driver.QueueId -> [[Word8]] -> IO ()
   send dev (Driver.QueueId id) buffers = case devTxQueues dev V.!? id of
