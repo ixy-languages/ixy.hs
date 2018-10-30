@@ -124,110 +124,68 @@ init bdf numRx numTx = do
 
   receive :: Device -> Driver.QueueId -> Int -> IO [[Word8]]
   receive dev (Driver.QueueId id) num = case devRxQueues dev V.!? id of
-    Just queue -> do
-      lastRxIndex <- readIORef (rxqIndexRef queue)
-      bufs        <- inner queue 0
-      nextIndex   <- readIORef (rxqIndexRef queue)
-      when (nextIndex /= lastRxIndex)
-           (runReaderT (R.set (R.RDT id) $ fromIntegral nextIndex) dev)
-      return bufs
-    Nothing -> return []
+    Just queue -> inner queue 0
+    Nothing    -> return []
    where
     inner queue i = do
       rxIndex <- readIORef (rxqIndexRef queue)
-      let descPtr =
-            rxqDescBase queue `plusPtr` (rxIndex * sizeOf nullReceiveDescriptor)
-      descriptor <- peek descPtr
-      let status = rdStatus descriptor
-      if status .&. 0x1 /= 0
-        then if status .&. 0x2 == 0
-          then throwIO $ userError "Multi-segment packets are not supported."
-          else do
-            let bufPtr = rxqBufBase queue `plusPtr` (rxIndex * bufferSize)
-                bufPhysAddr =
-                  rxqBufPhysBase queue + fromIntegral (rxIndex * bufferSize)
-            buf <- peekArray (fromIntegral $ rdLength descriptor) bufPtr
-            poke descPtr
-                 ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
-            modifyIORef' (rxqIndexRef queue) (+ 1)
-            if i == num - 1
-              then return [buf]
-              else (buf :) <$> inner queue (i + 1)
-        else return []
+      let index = rxIndex + i `mod` numRxQueueEntries
+      if i == num
+        then do
+          writeTail (index - 1)
+          return []
+        else do
+          descriptor <- peek (rxqDescriptor queue index)
+          if rdStatus descriptor .&. 0x1 /= 0
+            then if rdStatus descriptor .&. 0x2 == 0
+              then throwIO
+                $ userError "Multi-segment packets are not supported."
+              else do
+                let (bufPtr, bufPhysAddr) = rxqBuffer queue index
+                buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
+                resetReceiveDescriptor queue index bufPhysAddr
+                (buffer :) <$> inner queue (i + 1)
+            else do
+              writeTail (index - 1)
+              return []
+     where
+      writeTail newIndex = do
+        runReaderT (R.set (R.RDH id) $ fromIntegral newIndex) dev
+        writeIORef (rxqIndexRef queue) newIndex
 
   send :: Device -> Driver.QueueId -> [[Word8]] -> IO ()
   send dev (Driver.QueueId id) buffers = case devTxQueues dev V.!? id of
     Just queue -> do
       clean queue
-      cleanIndex <- readIORef (txqCleanRef queue)
-      inner queue cleanIndex buffers
-      nextIndex <- readIORef (txqIndexRef queue)
-      runReaderT (R.set (R.TDT id) $ fromIntegral nextIndex) dev
+      inner queue buffers
+      newIndex <- readIORef (txqIndexRef queue)
+      runReaderT (R.set (R.TDT id) $ fromIntegral (newIndex - 1)) dev
     Nothing -> return ()
    where
     clean queue = do
       curIndex   <- readIORef (txqIndexRef queue)
       cleanIndex <- readIORef (txqCleanRef queue)
-      let cleanable = if curIndex - cleanIndex >= 0
+      let amount = if curIndex - cleanIndex >= 0
             then curIndex - cleanIndex
-            else numTxQueueEntries + (curIndex - cleanIndex)
-      if cleanable < txCleanBatch
-        then return ()
-        else do
-          let
-            c = cleanIndex + txCleanBatch - 1
-            cleanupTo =
-              if c < numTxQueueEntries then c else c - numTxQueueEntries
-            descPtr =
-              txqDescBase queue
-                `plusPtr` (cleanupTo * sizeOf nullTransmitDescriptor)
-          descriptor <- peek descPtr
-          when
-            (tdStatus descriptor .&. 0x1 /= 0)
-            (modifyIORef'
-              (txqCleanRef queue)
-              (\current -> (current + cleanupTo) `mod` numTxQueueEntries)
-            )
-    inner queue cleanIndex (buf : bufs) = do
-      curIndex <- readIORef (txqIndexRef queue)
+            else numTxQueueEntries - cleanIndex + curIndex
+      when (amount >= txCleanBatch) $ do
+        let cleanTo = (cleanIndex + txCleanBatch - 1) `mod` numTxQueueEntries
+        descriptor <- peek (txqDescriptor queue cleanTo)
+        when (tdStatus descriptor .&. 0x1 /= 0) $ do
+          writeIORef (txqCleanRef queue) cleanTo
+          clean queue
+    inner queue (buf : bufs) = do
+      curIndex   <- readIORef (txqIndexRef queue)
+      cleanIndex <- readIORef (txqCleanRef queue)
       let nextIndex = (curIndex + 1) `mod` numTxQueueEntries
-      unless
-        (cleanIndex == nextIndex)
-        (do
-          let
-            descPtr =
-              txqDescBase queue
-                `plusPtr` (curIndex * sizeOf nullReceiveDescriptor)
-            bufPtr = txqBufBase queue `plusPtr` (curIndex * bufferSize)
-            bufPhysAddr =
-              txqBufPhysBase queue + fromIntegral (curIndex * bufferSize)
-            len = length buf
-          pokeArray bufPtr buf
-          poke
-            descPtr
-            TransmitRead
-              { tdBufPhysAddr  = bufPhysAddr
-              , tdCmdTypeLen   = fromIntegral $ cmdTypeLen len
-              , tdOlInfoStatus = fromIntegral $ shift len 14
-              }
-          writeIORef (txqIndexRef queue) nextIndex
-          inner queue cleanIndex bufs
-        )
-     where
-      cmdTypeLen = (.|.)
-        (   endOfPacket
-        .|. reportStatus
-        .|. frameCheckSequence
-        .|. descExt
-        .|. advDesc
-        )
-       where
-        endOfPacket        = 0x1000000
-        reportStatus       = 0x8000000
-        frameCheckSequence = 0x2000000
-        descExt            = 0x20000000
-        advDesc            = 0x300000
-    inner _ _ [] = return ()
+      unless (nextIndex == cleanIndex)
+        $ let (bufPtr, bufPhysAddr) = txqBuffer queue curIndex
+          in  do
+                pokeArray bufPtr buf
+                setTransmitDescriptor queue curIndex bufPhysAddr (length buf)
+                writeIORef (txqIndexRef queue) nextIndex
+                inner queue bufs
+    inner _ [] = return ()
 
   stats :: Device -> IO Driver.Stats
   stats = runReaderT
@@ -260,7 +218,6 @@ init bdf numRx numTx = do
     output <- runReaderT R.dumpRegisters dev
     return $ foldr (<>) "" output
 
---
 -- | Initialize a number of rx queues.
 initRx
   :: (MonadThrow m, MonadIO m, MonadLogger m, MonadReader Device m)
