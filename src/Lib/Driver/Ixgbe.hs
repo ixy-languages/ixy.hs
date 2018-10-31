@@ -36,10 +36,8 @@ import           Foreign.Marshal.Array          ( peekArray
                                                 , pokeArray
                                                 )
 import           Foreign.Marshal.Utils          ( fillBytes )
-import           Foreign.Ptr                    ( plusPtr )
 import           Foreign.Storable               ( sizeOf
                                                 , peek
-                                                , poke
                                                 )
 import           Numeric                        ( showHex )
 import           System.IO.Error                ( userError )
@@ -151,7 +149,7 @@ init bdf numRx numTx = do
      where
       writeTail newIndex = do
         runReaderT (R.set (R.RDH id) $ fromIntegral newIndex) dev
-        writeIORef (rxqIndexRef queue) $ (newIndex + 1) `mod` numRxQueueEntries
+        writeIORef (rxqIndexRef queue) newIndex
 
   send :: Device -> Driver.QueueId -> [[Word8]] -> IO ()
   send dev (Driver.QueueId id) buffers = case devTxQueues dev V.!? id of
