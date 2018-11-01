@@ -122,12 +122,13 @@ init bdf numRx numTx = do
 
   receive :: Device -> Driver.QueueId -> Int -> IO [[Word8]]
   receive dev (Driver.QueueId id) num = case devRxQueues dev V.!? id of
-    Just queue -> inner queue 0
-    Nothing    -> return []
-   where
-    inner queue i = do
+    Just queue -> do
       rxIndex <- readIORef (rxqIndexRef queue)
-      let index = rxIndex + i `mod` numRxQueueEntries
+      inner queue rxIndex 0
+    Nothing -> return []
+   where
+    inner queue rxIndex i = do
+      let index = (rxIndex + i) `rem` numRxQueueEntries
       if i == num
         then do
           writeTail index
@@ -142,7 +143,7 @@ init bdf numRx numTx = do
                 let (bufPtr, bufPhysAddr) = rxqBuffer queue index
                 buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
                 resetReceiveDescriptor queue index bufPhysAddr
-                (buffer :) <$> inner queue (i + 1)
+                (buffer :) <$> inner queue rxIndex (i + 1)
             else do
               writeTail index
               return []
