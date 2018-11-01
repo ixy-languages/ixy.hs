@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module      :  Lib.Driver.Ixgbe.Descriptor
 -- Copyright   :  Alex Egger 2018
@@ -32,10 +33,10 @@ import           Foreign.Storable               ( sizeOf
 nullReceiveDescriptor :: ReceiveDescriptor
 nullReceiveDescriptor = ReceiveRead {rdBufPhysAddr = 0, rdHeaderAddr = 0}
 
-data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: Word64
-                                     , rdHeaderAddr :: Word64 }
-                       | ReceiveWriteback { rdStatus :: Word32
-                                          , rdLength :: Word16} deriving (Show)
+data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: !Word64
+                                     , rdHeaderAddr :: !Word64 }
+                       | ReceiveWriteback { rdStatus :: !Word32
+                                          , rdLength :: !Word16}
 
 instance Storable ReceiveDescriptor where
   sizeOf _ = 16
@@ -53,11 +54,11 @@ nullTransmitDescriptor :: TransmitDescriptor
 nullTransmitDescriptor =
   TransmitRead {tdBufPhysAddr = 0, tdCmdTypeLen = 0, tdOlInfoStatus = 0}
 
-data TransmitDescriptor = TransmitRead { tdBufPhysAddr :: Word64
-                                       , tdCmdTypeLen  :: Word32
-                                       , tdOlInfoStatus :: Word32
+data TransmitDescriptor = TransmitRead { tdBufPhysAddr :: !Word64
+                                       , tdCmdTypeLen  :: !Word32
+                                       , tdOlInfoStatus :: !Word32
                                        }
-                        | TransmitWriteback {tdStatus :: Word32} deriving (Show)
+                        | TransmitWriteback {tdStatus :: !Word32}
 
 instance Storable TransmitDescriptor where
   sizeOf _ = 16

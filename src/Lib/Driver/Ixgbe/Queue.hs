@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 -- |
 -- Module      :  Lib.Driver.Ixgbe.Queue
 -- Copyright   :  Alex Egger 2018
@@ -44,9 +45,9 @@ numRxQueueEntries = 512
 numTxQueueEntries :: Int
 numTxQueueEntries = 512
 
-data RxQueue = RxQueue { rxqDescriptor :: Int -> Ptr ReceiveDescriptor
-                       , rxqBuffer :: Int -> (Ptr Word8, PhysAddr)
-                       , rxqIndexRef :: IORef Int}
+data RxQueue = RxQueue { rxqDescriptor :: !(Int -> Ptr ReceiveDescriptor)
+                       , rxqBuffer :: !(Int -> (Ptr Word8, PhysAddr))
+                       , rxqIndexRef :: !(IORef Int)}
 
 mkRxQueueM :: (MonadIO m) => Ptr ReceiveDescriptor -> Ptr Word8 -> m RxQueue
 mkRxQueueM descBase bufBase = do
@@ -65,7 +66,7 @@ mkRxQueueM descBase bufBase = do
             bufPhysAddr = bufPhysBase + fromIntegral (i * bufferSize)
         in  (bufPtr, bufPhysAddr)
   indexRef <- liftIO $ newIORef (0 :: Int)
-  return RxQueue
+  return $! RxQueue
     { rxqDescriptor = descriptor
     , rxqBuffer     = buffer
     , rxqIndexRef   = indexRef
@@ -77,16 +78,16 @@ mkRxQueueM descBase bufBase = do
                   ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
 
 resetReceiveDescriptor :: RxQueue -> Int -> PhysAddr -> IO ()
-resetReceiveDescriptor queue index bufPhysAddr = poke
+resetReceiveDescriptor !queue !index !bufPhysAddr = poke
   (rxqDescriptor queue index)
   ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
 
 -- $ Transmit Queues
 
-data TxQueue = TxQueue { txqDescriptor :: Int -> Ptr TransmitDescriptor
-                       , txqBuffer :: Int -> (Ptr Word8, PhysAddr)
-                       , txqIndexRef :: IORef Int
-                       , txqCleanRef :: IORef Int}
+data TxQueue = TxQueue { txqDescriptor :: !(Int -> Ptr TransmitDescriptor)
+                       , txqBuffer :: !(Int -> (Ptr Word8, PhysAddr))
+                       , txqIndexRef :: !(IORef Int)
+                       , txqCleanRef :: !(IORef Int)}
 
 mkTxQueueM :: (MonadIO m) => Ptr TransmitDescriptor -> Ptr Word8 -> m TxQueue
 mkTxQueueM descBase bufBase = do
@@ -98,7 +99,7 @@ mkTxQueueM descBase bufBase = do
         let bufPtr      = bufBase `plusPtr` (i * bufferSize)
             bufPhysAddr = bufPhysBase + fromIntegral (i * bufferSize)
         in  (bufPtr, bufPhysAddr)
-  return TxQueue
+  return $! TxQueue
     { txqDescriptor = descriptor
     , txqBuffer     = buffer
     , txqIndexRef   = indexRef
@@ -106,7 +107,7 @@ mkTxQueueM descBase bufBase = do
     }
 
 setTransmitDescriptor :: TxQueue -> Int -> PhysAddr -> Int -> IO ()
-setTransmitDescriptor queue index bufPhysAddr size = poke
+setTransmitDescriptor !queue !index !bufPhysAddr !size = poke
   (txqDescriptor queue index)
   TransmitRead
     { tdBufPhysAddr  = bufPhysAddr
