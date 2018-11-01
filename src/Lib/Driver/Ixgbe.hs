@@ -123,25 +123,26 @@ init bdf numRx numTx = do
   receive :: Device -> Driver.QueueId -> Int -> IO [[Word8]]
   receive dev (Driver.QueueId id) num = case devRxQueues dev V.!? id of
     Just queue -> do
-      rxIndex <- readIORef (rxqIndexRef queue)
+      !rxIndex <- readIORef (rxqIndexRef queue)
       inner queue rxIndex 0
     Nothing -> return []
    where
     inner queue rxIndex i = do
-      let index = (rxIndex + i) `rem` numRxQueueEntries
+      let !index = (rxIndex + i) `rem` numRxQueueEntries
       if i == num
         then do
           writeTail index
           return []
         else do
-          descriptor <- peek (rxqDescriptor queue index)
-          if rdStatus descriptor .&. 0x1 /= 0
-            then if rdStatus descriptor .&. 0x2 == 0
+          !descriptor <- peek (rxqDescriptor queue index)
+          let status = rdStatus descriptor
+          if testBit status 0
+            then if not $ testBit status 1
               then throwIO
                 $ userError "Multi-segment packets are not supported."
               else do
-                let (bufPtr, bufPhysAddr) = rxqBuffer queue index
-                buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
+                let !(bufPtr, bufPhysAddr) = rxqBuffer queue index
+                !buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
                 resetReceiveDescriptor queue index bufPhysAddr
                 (buffer :) <$> inner queue rxIndex (i + 1)
             else do
