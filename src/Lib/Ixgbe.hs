@@ -162,7 +162,7 @@ initRx numRx = do
       ((.&. (0xF1FFFFFF :: Word32)) <$> liftIO (get dev (SRRCTL id)))
     liftIO $ set dev (SRRCTL id) advRxDescEnable
     -- Enable dropping of packets, when all descriptors are full.
-    liftIO $ set dev (SRRCTL id) dropEnable
+    liftIO $ setMask dev (SRRCTL id) dropEnable
     -- Setup descriptor ring.
     case head descPtrs of
       Just descPtr ->
