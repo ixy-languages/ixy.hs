@@ -142,8 +142,9 @@ initRx numRx = do
   broadcastAcceptMode = 0x400
   noSnoopDisable      = 0x10000
   setupMem _ = do
-    descPtr <- allocateDescriptors $ numRx * sizeOf nullReceiveDescriptor
-    bufPtr  <- allocateMem (numRx * bufferSize) True
+    descPtr <-
+      allocateDescriptors $ numRxQueueEntries * sizeOf nullReceiveDescriptor
+    bufPtr <- allocateMem (numRx * bufferSize) True
     let indices = [0 .. numRx - 1]
         descPtrs =
           [ descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
@@ -234,8 +235,9 @@ initTx numTx = do
   arbiterDisable = 0x40
   dmaTxEnable    = 0x1
   setupMem _ = do
-    descPtr <- allocateDescriptors $ numTx * sizeOf nullTransmitDescriptor
-    bufPtr  <- allocateMem (numTx * bufferSize) True
+    descPtr <-
+      allocateDescriptors $ numTxQueueEntries * sizeOf nullTransmitDescriptor
+    bufPtr <- allocateMem (numTx * bufferSize) True
     let indices = [0 .. numTx - 1]
         descPtrs =
           [ descPtr `plusPtr` (i * sizeOf nullTransmitDescriptor)
