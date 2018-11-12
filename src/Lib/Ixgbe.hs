@@ -145,7 +145,7 @@ initRx numRx = do
     descPtr <-
       allocateDescriptors $ numRxQueueEntries * sizeOf nullReceiveDescriptor
     bufPtr <- allocateMem (numRxQueueEntries * bufferSize) True
-    let indices = [0 .. numRx - 1]
+    let indices = [0 .. numRxQueueEntries - 1]
         descPtrs =
           [ descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
           | i <- indices
@@ -238,7 +238,7 @@ initTx numTx = do
     descPtr <-
       allocateDescriptors $ numTxQueueEntries * sizeOf nullTransmitDescriptor
     bufPtr <- allocateMem (numTxQueueEntries * bufferSize) True
-    let indices = [0 .. numTx - 1]
+    let indices = [0 .. numTxQueueEntries - 1]
         descPtrs =
           [ descPtr `plusPtr` (i * sizeOf nullTransmitDescriptor)
           | i <- indices
