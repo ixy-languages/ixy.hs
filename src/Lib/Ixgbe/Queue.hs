@@ -27,6 +27,7 @@ module Lib.Ixgbe.Queue
   )
 where
 
+import           Lib.Memory
 import           Lib.Prelude
 
 import           Data.IORef
@@ -57,11 +58,16 @@ data RxQueue = RxQueue { rxqEntries :: Unboxed.Vector (Word, Word)
 
 mkRxQueue :: MonadIO m => [Ptr ReceiveDescriptor] -> [Ptr Word8] -> m RxQueue
 mkRxQueue descPtrs bufPtrs = do
+  let bufPhysAddrs = map (translate . VirtAddr) bufPtrs
+  mapM_ writeDescriptor $ zip descPtrs bufPhysAddrs
   indexRef <- liftIO $ newIORef (0 :: Int)
   return $! RxQueue
     { rxqEntries  = ptrsToUnboxedVec descPtrs bufPtrs
     , rxqIndexRef = indexRef
     }
+ where
+  writeDescriptor (descPtr, PhysAddr bufPhysAddr) = liftIO
+    $ poke descPtr ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
 
 data TxQueue = TxQueue { txqEntries :: Unboxed.Vector (Word, Word)
                        , txqIndexRef :: IORef Int
