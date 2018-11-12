@@ -76,5 +76,6 @@ loop counter dev1 dev2 = do
 forward :: Device -> Device -> IO ()
 forward rxDev txDev = do
   !pkts <- receive rxDev 0 128
+  dump rxDev
   unless (null pkts) (send txDev 0 pkts)
 

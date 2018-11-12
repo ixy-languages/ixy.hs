@@ -21,6 +21,7 @@ module Lib.Ixgbe
   , send
   , stats
   , setPromisc
+  , dump
   )
 where
 
@@ -368,7 +369,7 @@ send dev id pkts = do
   go queue !(pkt : pkts) = do
     !curIndex   <- readIORef (txqIndexRef queue)
     !cleanIndex <- readIORef (txqCleanRef queue)
-    let !nextIndex = (curIndex + 1) `mod` numTxQueueEntries
+    let !nextIndex = (curIndex + 1) `rem` numTxQueueEntries
     unless (nextIndex == cleanIndex) $ do
       let
         (descWord, bufWord)    = txqEntries queue Unboxed.! curIndex
@@ -616,3 +617,10 @@ waitSet dev register value = waitUntil dev register value (== value)
 
 waitClear :: Device -> Register -> Word32 -> IO ()
 waitClear dev register value = waitUntil dev register value (== 0)
+
+dump :: Device -> IO ()
+dump dev = forM_ [0, 0x40 .. 0xF0000] $ \i -> do
+  v <- peek $ devBasePtr dev `plusPtr` i :: IO Word32
+  if i `mod` 0x280 == 0
+    then putStrLn $ showHex v ""
+    else putStr $ showHex v "" <> " "
