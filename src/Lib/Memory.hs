@@ -87,8 +87,9 @@ allocateMem size contiguous = do
 
 -- $ Utility
 
-translate :: (MonadIO m) => VirtAddr a -> m PhysAddr
-translate (VirtAddr virt) = liftIO
+-- NB: unsafePerformIO!
+translate :: VirtAddr a -> PhysAddr
+translate (VirtAddr virt) = unsafePerformIO
   $ PathIO.withBinaryFile path PathIO.ReadMode inner
  where
   inner h = do
@@ -98,7 +99,7 @@ translate (VirtAddr virt) = liftIO
       Done _ _ b -> return $ PhysAddr $ getAddr $ fromIntegral b
       Partial _ ->
         throwM $ userError "Partial input when parsing physical address."
-      Fail{} -> throwM $ userError "Physical address was malformed."
+      Fail _ _ _ -> throwM $ userError "Physical address was malformed."
   path         = Path.absFile "/proc/self/pagemap"
   WordPtr addr = ptrToWordPtr virt
   offset       = (addr `quot` pageSize) * 8 -- This is not arch-specific, hence the magic number.
