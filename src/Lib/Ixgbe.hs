@@ -165,28 +165,27 @@ initRx numRx = do
     liftIO $ setMask dev (SRRCTL id) dropEnable
     -- Setup descriptor ring.
     case head descPtrs of
-      Just descPtr ->
-        let (PhysAddr physAddr) = translate (VirtAddr descPtr)
-        in  do
-              liftIO $ do
-                set dev (RDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
-                set dev (RDBAH id) $ fromIntegral $ shift physAddr (-32)
-                set dev (RDLEN id)
-                  $ fromIntegral
-                  $ length descPtrs
-                  * sizeOf nullReceiveDescriptor
-              $(logDebug)
-                $  "Rx Ring "
-                <> show id
-                <> " at "
-                <> show descPtr
-                <> "(phys="
-                <> T.pack (showHex physAddr "")
-                <> ")."
-               -- Set ring to empty at the start.
-              liftIO $ do
-                set dev (RDH id) 0
-                set dev (RDT id) 0
+      Just descPtr -> do
+        (PhysAddr physAddr) <- translate (VirtAddr descPtr)
+        liftIO $ do
+          set dev (RDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
+          set dev (RDBAH id) $ fromIntegral $ shift physAddr (-32)
+          set dev (RDLEN id)
+            $ fromIntegral
+            $ length descPtrs
+            * sizeOf nullReceiveDescriptor
+        $(logDebug)
+          $  "Rx Ring "
+          <> show id
+          <> " at "
+          <> show descPtr
+          <> "(phys="
+          <> T.pack (showHex physAddr "")
+          <> ")."
+         -- Set ring to empty at the start.
+        liftIO $ do
+          set dev (RDH id) 0
+          set dev (RDT id) 0
       Nothing -> throwM $ userError "Descriptor pointer list was empty."
     where dropEnable = 0x10000000
   makeQueue ((descPtrs, bufPtrs), id) = do
@@ -251,26 +250,25 @@ initTx numTx = do
     dev <- ask
     -- Setup descriptor ring.
     case head descPtrs of
-      Just descPtr ->
-        let (PhysAddr physAddr) = translate (VirtAddr descPtr)
-        in  do
-              liftIO $ do
-                set dev (TDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
-                set dev (TDBAH id) $ fromIntegral $ shift physAddr (-32)
-                set dev (TDLEN id)
-                  $ fromIntegral
-                  $ length descPtrs
-                  * sizeOf nullTransmitDescriptor
-              $(logDebug)
-                $  "Tx Ring "
-                <> show id
-                <> " at "
-                <> show descPtr
-                <> "(phys="
-                <> T.pack (showHex physAddr "")
-                <> ")."
-              -- Descriptor writeback magic values.
-              liftIO $ set dev (TXDCTL id) =<< wbMagic <$> get dev (TXDCTL id)
+      Just descPtr -> do
+        (PhysAddr physAddr) <- translate (VirtAddr descPtr)
+        liftIO $ do
+          set dev (TDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
+          set dev (TDBAH id) $ fromIntegral $ shift physAddr (-32)
+          set dev (TDLEN id)
+            $ fromIntegral
+            $ length descPtrs
+            * sizeOf nullTransmitDescriptor
+        $(logDebug)
+          $  "Tx Ring "
+          <> show id
+          <> " at "
+          <> show descPtr
+          <> "(phys="
+          <> T.pack (showHex physAddr "")
+          <> ")."
+        -- Descriptor writeback magic values.
+        liftIO $ set dev (TXDCTL id) =<< wbMagic <$> get dev (TXDCTL id)
       Nothing -> throwM $ userError "Descriptor pointer list was empty."
    where
     wbMagic =
@@ -339,7 +337,7 @@ receive dev id num =
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
-          let (PhysAddr bufPhysAddr) = translate $ VirtAddr bufPtr
+          (PhysAddr bufPhysAddr) <- translate $ VirtAddr bufPtr
           buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
           poke
             descPtr
@@ -372,17 +370,16 @@ send dev id pkts = do
     let !nextIndex = (curIndex + 1) `rem` numTxQueueEntries
     unless (nextIndex == cleanIndex) $ do
       let
-        (descWord, bufWord)    = txqEntries queue Unboxed.! curIndex
-        descPtr                = wordPtrToPtr $ WordPtr descWord
-        bufPtr                 = wordPtrToPtr $ WordPtr bufWord
-        (PhysAddr bufPhysAddr) = translate $ VirtAddr bufPtr
-        size                   = B.length pkt
-        endOfPacket            = 0x1000000
-        reportStatus           = 0x8000000
-        frameCheckSequence     = 0x2000000
-        descExt                = 0x20000000
-        advDesc                = 0x300000
-        cmdTypeLen             = (.|.)
+        (descWord, bufWord) = txqEntries queue Unboxed.! curIndex
+        descPtr             = wordPtrToPtr $ WordPtr descWord
+        bufPtr              = wordPtrToPtr $ WordPtr bufWord
+        size                = B.length pkt
+        endOfPacket         = 0x1000000
+        reportStatus        = 0x8000000
+        frameCheckSequence  = 0x2000000
+        descExt             = 0x20000000
+        advDesc             = 0x300000
+        cmdTypeLen          = (.|.)
           (   endOfPacket
           .|. reportStatus
           .|. frameCheckSequence
@@ -390,6 +387,8 @@ send dev id pkts = do
           .|. advDesc
           )
 
+
+      (PhysAddr bufPhysAddr) <- translate $ VirtAddr bufPtr
       pokeArray bufPtr $ B.unpack pkt
       poke
         descPtr

@@ -58,7 +58,7 @@ data RxQueue = RxQueue { rxqEntries :: Unboxed.Vector (Word, Word)
 
 mkRxQueue :: MonadIO m => [Ptr ReceiveDescriptor] -> [Ptr Word8] -> m RxQueue
 mkRxQueue descPtrs bufPtrs = do
-  let bufPhysAddrs = map (translate . VirtAddr) bufPtrs
+  bufPhysAddrs <- mapM (translate . VirtAddr) bufPtrs
   mapM_ writeDescriptor $ zip descPtrs bufPhysAddrs
   indexRef <- liftIO $ newIORef (0 :: Int)
   return $! RxQueue
