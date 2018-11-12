@@ -442,7 +442,17 @@ stats dev = do
     , stTxBytes = fromIntegral (txBytesL + txBytesH)
     }
 
+dump :: Device -> IO Text
+dump dev = foldr (<>) "" <$> forM [0, 0x2 .. 0xE000] (showRegister . toEnum)
+ where
+  showRegister register = if register /= UNDEFINED
+    then do
+      current <- get dev register
+      return $ show register <> ": " <> T.pack (showHex current "") <> "\n"
+    else return ""
+
 -- $ Memory
+
 allocateDescriptors
   :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
 allocateDescriptors size = do
@@ -586,6 +596,74 @@ instance Enum Register where
     fromEnum CRCERRS = 0x4000
     fromEnum UNDEFINED = 0xFFFFF
     fromEnum TXDGPC = 0x87A0
+    toEnum 0x00888 = EIMC
+    toEnum 0x00000 = CTRL
+    toEnum 0x042A0 = AUTOC
+    toEnum 0x02F00 = RDRXCTL
+    toEnum v
+      | v >= 0x03C00 && v <= 0x03C1C && v `mod` 0x4 == 0 = RXPBSIZE ((v - 0x03C00) `quot` 4)
+    toEnum v
+      | v >= 0x0CC00 && v <= 0xCC1C && v `mod` 0x4 == 0 = TXPBSIZE ((v - 0x0CC00) `quot` 4)
+    toEnum 0x04240 = HLREG0
+    toEnum 0x03000 = RXCTRL
+    toEnum 0x05080 = FCTRL
+    toEnum v
+        | v >= 0x01000 && v <= 0x01FC0 && v `mod` 0x40 == 0 = RDBAL ((v - 0x01000) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D000 && v <= 0x0DFC0 && v `mod` 0x40 == 0 = RDBAL (((v - 0x0D000) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01004 && v <= 0x01FC4 && v `mod` 0x40 == 4 = RDBAH ((v - 0x01004) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D004 && v <= 0x0DFC4 && v `mod` 0x40 == 4 = RDBAH (((v - 0x0D004) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01008 && v <= 0x01FC8 && v `mod` 0x40 == 8 = RDLEN ((v - 0x01008) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D008 && v <= 0x0DFC8 && v `mod` 0x40 == 8 = RDLEN (((v - 0x0D008) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01010 && v <= 0x01FD0 && v `mod` 0x40 == 0x10 = RDH ((v - 0x01010) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D010 && v <= 0x0DFD0 && v `mod` 0x40 == 0x10 = RDH (((v - 0x0D010) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01014 && v <= 0x01FD4 && v `mod` 0x40 == 0x14 = SRRCTL ((v - 0x01014) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D014 && v <= 0x0D0F4 && v `mod` 0x40 == 0x14 = SRRCTL (((v - 0x0D014) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01018 && v <= 0x01FD8 && v `mod` 0x40 == 0x18 = RDT ((v - 0x01018) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D018 && v <= 0x0DFD8 && v `mod` 0x40 == 0x18 = RDT (((v - 0x0D018) `quot` 0x40) + 64)
+    toEnum 0x00018 = CTRL_EXT
+    toEnum v
+        | v >= 0x0100C && v <= 0x01FCC && v `mod` 0x40 == 0xC = DCA_RXCTRL ((v - 0x0100C) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D00C && v <= 0x0DFCC && v `mod` 0x40 == 0xC = DCA_RXCTRL (((v - 0x0D00C) `quot` 0x40) + 64)
+    toEnum v
+        | v >= 0x01028 && v <= 0x01FE8 && v `mod` 0x40 == 0x28 = RXDCTL ((v - 0x01028) `quot` 0x40)
+    toEnum v
+        | v >= 0x0D028 && v <= 0x0DFE8 && v `mod` 0x40 == 0x28 = RXDCTL (((v - 0x0D028) `quot` 0x40) + 64)
+    toEnum 0x08100 = DTXMXSZRQ
+    toEnum 0x04900 = RTTDCS
+    toEnum 0x04074 = GPRC
+    toEnum 0x04080 = GPTC
+    toEnum 0x04088 = GORCL
+    toEnum 0x0408C = GORCH
+    toEnum 0x04A80 = DMATXCTL
+    toEnum 0x10010 = EEC
+    toEnum 0x042A4 = LINKS
+    toEnum v
+        | v >= 0x06000 && v <= 0x07FC0 && v `mod` 0x40 == 0 = TDBAL ((v - 0x06000) `quot` 0x40)
+    toEnum v
+        | v >= 0x06004 && v <= 0x07FC4 && v `mod` 0x40 == 4 = TDBAH ((v - 0x06004) `quot` 0x40)
+    toEnum v
+        | v >= 0x06008 && v <= 0x07FC8 && v `mod` 0x40 == 8 = TDLEN ((v - 0x06008) `quot` 0x40)
+    toEnum v
+        | v >= 0x06010 && v <= 0x07FD0 && v `mod` 0x40 == 0x10 = TDH ((v - 0x06010) `quot` 0x40)
+    toEnum v
+        | v >= 0x06018 && v <= 0x07FD8 && v `mod` 0x40 == 0x18 = TDT ((v - 0x06018) `quot` 0x40)
+    toEnum v
+        | v >= 0x06028 && v <= 0x07FE8 && v `mod` 0x40 == 0x28 = TXDCTL ((v - 0x06028) `quot` 0x40)
+    toEnum 0x4000 = CRCERRS
+    toEnum 0x87A0 = TXDGPC
+    toEnum _ = UNDEFINED
 
 set :: Device -> Register -> Word32 -> IO ()
 set dev register = pokeByteOff (devBasePtr dev) (fromEnum register)
@@ -618,9 +696,3 @@ waitSet dev register value = waitUntil dev register value (== value)
 waitClear :: Device -> Register -> Word32 -> IO ()
 waitClear dev register value = waitUntil dev register value (== 0)
 
-dump :: Device -> IO ()
-dump dev = forM_ [0, 0x40 .. 0xF0000] $ \i -> do
-  v <- peek $ devBasePtr dev `plusPtr` i :: IO Word32
-  if i `mod` 0x280 == 0
-    then putStrLn $ showHex v ""
-    else putStr $ showHex v "" <> " "
