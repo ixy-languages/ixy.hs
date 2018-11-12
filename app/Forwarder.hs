@@ -26,7 +26,7 @@ run = do
   counter <- liftIO $ newIORef (0 :: Int)
   liftIO $ loop counter dev1 dev2
 
-loop :: IORef Int -> Driver -> Driver -> IO ()
+loop :: IORef Int -> Device -> Device -> IO ()
 loop counter dev1 dev2 = do
   let clock = Monotonic
   timeRef <- newIORef (TimeSpec {sec = 0, nsec = 0})
@@ -73,9 +73,8 @@ loop counter dev1 dev2 = do
       )
     modifyIORef' counter (+ 1)
 
-forward :: Driver -> Driver -> IO ()
+forward :: Device -> Device -> IO ()
 forward rxDev txDev = do
-  !pkts <- receive rxDev (QueueId 0) 128
-  unless (null pkts) (send txDev (QueueId 0) pkts)
-  return ()
+  !pkts <- receive rxDev 0 128
+  unless (null pkts) (send txDev 0 pkts)
 

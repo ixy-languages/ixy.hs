@@ -11,10 +11,10 @@
 --
 --
 module Lib.Memory
-  ( allocateRaw
+  ( allocateMem
   , translate
-  , PhysAddr
-  , VirtAddr
+  , PhysAddr(..)
+  , VirtAddr(..)
   )
 where
 
@@ -30,8 +30,8 @@ import           Foreign.Ptr                    ( WordPtr(..)
                                                 , ptrToWordPtr
                                                 )
 import           System.IO.Error                ( userError )
+import           System.IO.Unsafe               ( unsafePerformIO )
 import qualified System.Path                   as Path
-import qualified System.Path.Directory         as Dir
 import qualified System.Path.IO                as PathIO
 import           System.Posix.IO                ( closeFd
                                                 , handleToFd
@@ -46,6 +46,9 @@ import           System.Posix.Memory            ( MemoryMapFlag(MemoryMapShared)
                                                 , sysconfPageSize
                                                 )
 
+newtype PhysAddr = PhysAddr Word64
+newtype VirtAddr a = VirtAddr (Ptr a)
+
 -- $ Huge Pages
 
 hugepageBits :: Int
@@ -56,9 +59,9 @@ hugepageSize = shift 1 hugepageBits
 
 -- $ Allocations
 
-allocateRaw
+allocateMem
   :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> Bool -> m (Ptr a)
-allocateRaw size contiguous = do
+allocateMem size contiguous = do
   $(logDebug)
     $  "Allocating a memory chunk with size "
     <> show size
@@ -78,22 +81,22 @@ allocateRaw size contiguous = do
                       MemoryMapShared
     ptr <- bracket (handleToFd h) closeFd (\fd -> Just fd `f` 0)
     memoryLock ptr $ fromIntegral s
-    -- We should remove this, but not here.
+    -- TODO: We should remove this, but not here.
     -- Dir.removeFile fname
     return ptr
 
 -- $ Utility
 
-type VirtAddr a = Ptr a
-type PhysAddr = Word64
-translate :: (MonadIO m) => VirtAddr a -> m PhysAddr
-translate virt = liftIO $ PathIO.withBinaryFile path PathIO.ReadMode inner
+-- NB: unsafePerformIO!
+translate :: VirtAddr a -> PhysAddr
+translate (VirtAddr virt) = unsafePerformIO
+  $ PathIO.withBinaryFile path PathIO.ReadMode inner
  where
   inner h = do
     PathIO.hSeek h PathIO.AbsoluteSeek $ fromIntegral offset
     buf <- B.hGet h 8
     case runGetIncremental getWord64le `pushChunk` buf of
-      Done _ _ b -> return $ getAddr $ fromIntegral b
+      Done _ _ b -> return $ PhysAddr $ getAddr $ fromIntegral b
       Partial _ ->
         throwM $ userError "Partial input when parsing physical address."
       Fail _ _ _ -> throwM $ userError "Physical address was malformed."

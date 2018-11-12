@@ -12,15 +12,12 @@
 --
 module Lib
   ( -- * Driver
-    Driver.Driver(..)
-  , newDriver
-  , Driver.QueueId(..)
-  , Driver.Stats(..)
+    newDriver
+  , module Lib.Ixgbe
   )
 where
 
-import qualified Lib.Driver                    as Driver
-import           Lib.Driver.Ixgbe
+import           Lib.Ixgbe
 import           Lib.Pci                        ( busDeviceFunction )
 import           Lib.Prelude
 
@@ -35,7 +32,7 @@ newDriver
   => Text -- ^ The 'BusDeviceFunction' of the device.
   -> Int -- ^ The number of rx queues to initialize.
   -> Int -- ^ The number of tx queues to initialize.
-  -> m (Maybe Driver.Driver)
+  -> m (Maybe Device)
 newDriver bdfT numRx numTx = case busDeviceFunction bdfT of
   Just bdf -> do
     !dev <- init bdf numRx numTx
