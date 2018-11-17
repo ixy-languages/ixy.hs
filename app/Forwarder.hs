@@ -46,27 +46,23 @@ loop counter dev1 dev2 = do
             putStrLn ("Diff was: " <> show diff :: Text)
             !st1 <- stats dev1
             !st2 <- stats dev2
+            let
+              mult =
+                fromIntegral (sec diff) + (fromIntegral (nsec diff) / 1.0e10) :: Float
+              divisor = 1000000 * mult
             putStrLn
               ("Driver 1 -> RX: "
-              <> show (fromIntegral (stRxPkts st1) / 1000000)
-              <> "Mpps, "
-              <> show (fromIntegral (stRxBytes st1) / 100000)
-              <> " MBit/s | TX: "
-              <> show (fromIntegral (stTxPkts st1) / 1000000)
-              <> "Mpps, "
-              <> show (fromIntegral (stTxBytes st1) / 100000)
-              <> " MBit/s" :: Text
+              <> show (fromIntegral (stRxPkts st1) / divisor)
+              <> "Mpps | TX: "
+              <> show (fromIntegral (stTxPkts st1) / divisor)
+              <> "Mpps" :: Text
               )
             putStrLn
               ("Driver 2 -> RX: "
-              <> show (fromIntegral (stRxPkts st2) / 1000000)
-              <> "Mpps, "
-              <> show (fromIntegral (stRxBytes st2) / 100000)
-              <> " MBit/s | TX: "
-              <> show (fromIntegral (stTxPkts st2) / 1000000)
-              <> "Mpps, "
-              <> show (fromIntegral (stTxBytes st2) / 100000)
-              <> " MBit/s" :: Text
+              <> show (fromIntegral (stRxPkts st2) / divisor)
+              <> " Mpps | TX: "
+              <> show (fromIntegral (stTxPkts st2) / divisor)
+              <> "Mpps" :: Text
               )
             writeIORef timeRef t
           )
