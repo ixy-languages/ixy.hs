@@ -330,16 +330,15 @@ receive dev id num =
     shiftTail queue next
     return pkts
   go queue !index !i !pkts = do
-    let next                = (index + i) `rem` numRxQueueEntries
-        (descWord, bufWord) = rxqEntries queue Unboxed.! next
-        descPtr             = wordPtrToPtr $ WordPtr descWord
-        bufPtr              = wordPtrToPtr $ WordPtr bufWord
+    let next                             = (index + i) `rem` numRxQueueEntries
+        (descWord, bufWord, bufPhysAddr) = rxqEntries queue Unboxed.! next
+        descPtr                          = wordPtrToPtr $ WordPtr descWord
+        bufPtr                           = wordPtrToPtr $ WordPtr bufWord
     descriptor <- peek descPtr
     if isDone descriptor
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
-          let (PhysAddr bufPhysAddr) = translate $ VirtAddr bufPtr
           buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
           poke
             descPtr
@@ -372,17 +371,16 @@ send dev id pkts = do
     let !nextIndex = (curIndex + 1) `rem` numTxQueueEntries
     unless (nextIndex == cleanIndex) $ do
       let
-        (descWord, bufWord)    = txqEntries queue Unboxed.! curIndex
-        descPtr                = wordPtrToPtr $ WordPtr descWord
-        bufPtr                 = wordPtrToPtr $ WordPtr bufWord
-        (PhysAddr bufPhysAddr) = translate $ VirtAddr bufPtr
-        size                   = B.length pkt
-        endOfPacket            = 0x1000000
-        reportStatus           = 0x8000000
-        frameCheckSequence     = 0x2000000
-        descExt                = 0x20000000
-        advDesc                = 0x300000
-        cmdTypeLen             = (.|.)
+        (descWord, bufWord, bufPhysAddr) = txqEntries queue Unboxed.! curIndex
+        descPtr                          = wordPtrToPtr $ WordPtr descWord
+        bufPtr                           = wordPtrToPtr $ WordPtr bufWord
+        size                             = B.length pkt
+        endOfPacket                      = 0x1000000
+        reportStatus                     = 0x8000000
+        frameCheckSequence               = 0x2000000
+        descExt                          = 0x20000000
+        advDesc                          = 0x300000
+        cmdTypeLen                       = (.|.)
           (   endOfPacket
           .|. reportStatus
           .|. frameCheckSequence
@@ -409,7 +407,7 @@ send dev id pkts = do
           else numTxQueueEntries - cleanIndex + curIndex
     when (amount >= txCleanBatch) $ do
       let !cleanTo = (cleanIndex + txCleanBatch - 1) `mod` numTxQueueEntries
-          (descWord, _) = txqEntries queue Unboxed.! cleanTo
+          (descWord, _, _) = txqEntries queue Unboxed.! cleanTo
           descPtr = wordPtrToPtr $ WordPtr descWord
       !descriptor <- peek descPtr
       when (tdStatus descriptor .&. 0x1 /= 0) $ do

@@ -31,6 +31,7 @@ import           Lib.Memory
 import           Lib.Prelude
 
 import           Data.IORef
+import           Data.List                      ( zip3 )
 import qualified Data.Vector.Unboxed           as Unboxed
 import           Foreign.Ptr                    ( castPtr
                                                 , ptrToWordPtr
@@ -53,7 +54,7 @@ numTxQueueEntries = 512
 bufferSize :: Int
 bufferSize = 2048
 
-data RxQueue = RxQueue { rxqEntries :: Unboxed.Vector (Word, Word)
+data RxQueue = RxQueue { rxqEntries :: Unboxed.Vector (Word, Word, Word64)
                        , rxqIndexRef :: IORef Int }
 
 mkRxQueue :: MonadIO m => [Ptr ReceiveDescriptor] -> [Ptr Word8] -> m RxQueue
@@ -62,14 +63,14 @@ mkRxQueue descPtrs bufPtrs = do
   mapM_ writeDescriptor $ zip descPtrs bufPhysAddrs
   indexRef <- liftIO $ newIORef (0 :: Int)
   return $! RxQueue
-    { rxqEntries  = ptrsToUnboxedVec descPtrs bufPtrs
+    { rxqEntries  = mkEntryVec descPtrs bufPtrs bufPhysAddrs
     , rxqIndexRef = indexRef
     }
  where
   writeDescriptor (descPtr, PhysAddr bufPhysAddr) = liftIO
     $ poke descPtr ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
 
-data TxQueue = TxQueue { txqEntries :: Unboxed.Vector (Word, Word)
+data TxQueue = TxQueue { txqEntries :: Unboxed.Vector (Word, Word, Word64)
                        , txqIndexRef :: IORef Int
                        , txqCleanRef :: IORef Int}
 
@@ -77,19 +78,24 @@ mkTxQueue :: MonadIO m => [Ptr TransmitDescriptor] -> [Ptr Word8] -> m TxQueue
 mkTxQueue descPtrs bufPtrs = do
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
+  let bufPhysAddrs = map (translate . VirtAddr) bufPtrs
   return $! TxQueue
-    { txqEntries  = ptrsToUnboxedVec descPtrs bufPtrs
+    { txqEntries  = mkEntryVec descPtrs bufPtrs bufPhysAddrs
     , txqIndexRef = indexRef
     , txqCleanRef = cleanRef
     }
 
-ptrsToUnboxedVec :: [Ptr a] -> [Ptr b] -> Unboxed.Vector (Word, Word)
-ptrsToUnboxedVec firstPtrs secondPtrs =
-  let firstPtrWords  = map unwrapPtr firstPtrs
-      secondPtrWords = map unwrapPtr secondPtrs
-      entries        = zip firstPtrWords secondPtrWords
+mkEntryVec
+  :: [Ptr a] -> [Ptr Word8] -> [PhysAddr] -> Unboxed.Vector (Word, Word, Word64)
+mkEntryVec descPtrs bufPtrs bufPhysAddrs =
+  let descPtrWords     = map unwrapPtr descPtrs
+      bufPtrWords      = map unwrapPtr bufPtrs
+      bufPhysAddrWords = map unwrapPhys bufPhysAddrs
+      entries          = zip3 descPtrWords bufPtrWords bufPhysAddrWords
   in  Unboxed.fromList entries
-  where unwrapPtr ptr = let WordPtr w = ptrToWordPtr ptr in w
+ where
+  unwrapPtr ptr = let WordPtr w = ptrToWordPtr ptr in w
+  unwrapPhys (PhysAddr physAddr) = physAddr
 
 data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: !Word64
                                      , rdHeaderAddr :: !Word64 }

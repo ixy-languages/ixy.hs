@@ -48,7 +48,7 @@ loop counter dev1 dev2 = do
             !st2 <- stats dev2
             let
               mult =
-                fromIntegral (sec diff) + (fromIntegral (nsec diff) / 1.0e10) :: Float
+                fromIntegral (sec diff) + (fromIntegral (nsec diff) / 1.0e9) :: Float
               divisor = 1000000 * mult
             putStrLn
               ("Driver 1 -> RX: "
@@ -72,6 +72,5 @@ loop counter dev1 dev2 = do
 forward :: Device -> Device -> IO ()
 forward rxDev txDev = do
   !pkts <- receive rxDev 0 128
-  dump rxDev
-  unless (null pkts) (send txDev 0 pkts)
+  send txDev 0 (reverse pkts)
 
