@@ -40,7 +40,9 @@ import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as Unboxed
 import           Foreign.Marshal.Array          ( pokeArray )
-import           Foreign.Marshal.Utils          ( fillBytes )
+import           Foreign.Marshal.Utils          ( fillBytes
+                                                , copyBytes
+                                                )
 import           Foreign.Ptr                    ( plusPtr
                                                 , castPtr
                                                 , wordPtrToPtr
@@ -388,7 +390,9 @@ send dev id packets = do
           .|. advDesc
           )
 
-      {-# SCC "PokeBuf" #-} pokeArray bufPtr $ B.unpack pkt
+      -- {-# SCC "PokeBuf" #-} pokeArray bufPtr $ B.unpack pkt
+      -- unsafeAsCStringLen would be cool, but doesn't store a copy so problems with buffer?
+      {-# SCC "PokeBuf" #-} B.useAsCStringLen pkt $ uncurry (copyBytes bufPtr)
       {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
       writeIORef (txqIndexRef queue) nextIndex
       go queue pkts
