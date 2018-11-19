@@ -38,15 +38,11 @@ import qualified Data.ByteString               as B
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
-import qualified Data.Vector.Unboxed           as Unboxed
-import           Foreign.Marshal.Array          ( pokeArray )
 import           Foreign.Marshal.Utils          ( fillBytes
                                                 , copyBytes
                                                 )
 import           Foreign.Ptr                    ( plusPtr
                                                 , castPtr
-                                                , wordPtrToPtr
-                                                , WordPtr(..)
                                                 )
 import           Foreign.Storable               ( sizeOf
                                                 , peekByteOff
@@ -191,21 +187,24 @@ initRx numRx = do
       Nothing -> throwM $ userError "Descriptor pointer list was empty."
     where dropEnable = 0x10000000
   makeQueue ((descPtrs, bufPtrs), id) = do
-    dev   <- ask
+    dev <- ask
     -- Construct the queue.
-    queue <- mkRxQueue descPtrs bufPtrs
-    $(logDebug) $ "Starting rx queue " <> show id <> "."
-    -- Enable queue and wait.
-    liftIO $ do
-      setMask dev (RXDCTL id) rxdctlEnable
-      waitSet dev (RXDCTL id) rxdctlEnable
-    -- Set rx queue to full.
-    liftIO $ do
-      set dev (RDH id) 0
-      set dev (RDT id) $ fromIntegral (numRxQueueEntries - 1)
+    case (head descPtrs, head bufPtrs) of
+      (Just descPtr, Just bufPtr) -> do
+        queue <- mkRxQueue descPtr bufPtr (length descPtrs)
+        $(logDebug) $ "Starting rx queue " <> show id <> "."
+        -- Enable queue and wait.
+        liftIO $ do
+          setMask dev (RXDCTL id) rxdctlEnable
+          waitSet dev (RXDCTL id) rxdctlEnable
+        -- Set rx queue to full.
+        liftIO $ do
+          set dev (RDH id) 0
+          set dev (RDT id) $ fromIntegral (numRxQueueEntries - 1)
 
-    return $! queue
-    where rxdctlEnable = 0x2000000
+        return $! queue
+        where rxdctlEnable = 0x2000000
+      _ -> throwM $ userError "This really cant happen can it."
 
 initTx
   :: (MonadThrow m, MonadIO m, MonadReader Device m, MonadLogger m)
@@ -278,20 +277,23 @@ initTx numTx = do
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
         . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
   makeQueue ((descPtrs, bufPtrs), id) = do
-    dev   <- ask
+    dev <- ask
     -- Construct the queue.
-    queue <- mkTxQueue descPtrs bufPtrs
-    $(logDebug) $ "Starting tx queue " <> show id <> "."
-    -- Tx queue starts out empty.
-    liftIO $ do
-      set dev (TDH id) 0
-      set dev (TDT id) 0
-    -- Enable queue and wait.
-    liftIO $ do
-      setMask dev (TXDCTL id) txdctlEnable
-      waitSet dev (TXDCTL id) txdctlEnable
+    case (head descPtrs, head bufPtrs) of
+      (Just descPtr, Just bufPtr) -> do
+        queue <- mkTxQueue descPtr bufPtr
+        $(logDebug) $ "Starting tx queue " <> show id <> "."
+        -- Tx queue starts out empty.
+        liftIO $ do
+          set dev (TDH id) 0
+          set dev (TDT id) 0
+        -- Enable queue and wait.
+        liftIO $ do
+          setMask dev (TXDCTL id) txdctlEnable
+          waitSet dev (TXDCTL id) txdctlEnable
 
-    return $! queue
+        return $! queue
+      _ -> throwM $ userError "This really cant happen, can it."
     where txdctlEnable = 0x2000000
 
 initLink :: (MonadIO m, MonadReader Device m) => m ()
@@ -331,10 +333,10 @@ receive dev id num =
     shiftTail queue next
     return pkts
   go queue !index !i !pkts = do
-    let next                             = (index + i) `rem` numRxQueueEntries
-        (descWord, bufWord, bufPhysAddr) = rxqEntries queue Unboxed.! next
-        descPtr                          = wordPtrToPtr $ WordPtr descWord
-        bufPtr                           = wordPtrToPtr $ WordPtr bufWord
+    let next        = (index + i) `rem` numRxQueueEntries
+        descPtr     = rxqDesc queue next
+        bufPtr      = rxqBuf queue next
+        bufPhysAddr = rxqBufPhys queue next
     descriptor <- peek descPtr
     if isDone descriptor
       then if not $ isEndOfPacket descriptor
@@ -374,16 +376,16 @@ send dev id packets = do
     let !nextIndex = (curIndex + 1) `rem` numTxQueueEntries
     unless (nextIndex == cleanIndex) $ do
       let
-        (descWord, bufWord, bufPhysAddr) = txqEntries queue Unboxed.! curIndex
-        descPtr                          = wordPtrToPtr $ WordPtr descWord
-        bufPtr                           = wordPtrToPtr $ WordPtr bufWord
-        size                             = B.length pkt
-        endOfPacket                      = 0x1000000
-        reportStatus                     = 0x8000000
-        frameCheckSequence               = 0x2000000
-        descExt                          = 0x20000000
-        advDesc                          = 0x300000
-        cmdTypeLen                       = (.|.)
+        descPtr            = txqDesc queue curIndex
+        bufPtr             = txqBuf queue curIndex
+        bufPhysAddr        = txqBufPhys queue curIndex
+        size               = B.length pkt
+        endOfPacket        = 0x1000000
+        reportStatus       = 0x8000000
+        frameCheckSequence = 0x2000000
+        descExt            = 0x20000000
+        advDesc            = 0x300000
+        cmdTypeLen         = (.|.)
           (   endOfPacket
           .|. reportStatus
           .|. frameCheckSequence
@@ -392,7 +394,7 @@ send dev id packets = do
           )
 
       -- TODO: unsafeAsCStringLen maybe?
-      {-# SCC "PokeBuf" #-} B.useAsCStringLen pkt $ uncurry (copyBytes bufPtr)
+      {-# SCC "PokeBuf" #-} B.useAsCStringLen pkt (\(ptr, len) -> copyBytes bufPtr (castPtr ptr) len)
       {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
       writeIORef (txqIndexRef queue) nextIndex
       go queue pkts
@@ -405,8 +407,7 @@ send dev id packets = do
           else numTxQueueEntries - cleanIndex + curIndex
     when (amount >= txCleanBatch) $ do
       let !cleanTo = (cleanIndex + txCleanBatch - 1) `mod` numTxQueueEntries
-          (descWord, _, _) = txqEntries queue Unboxed.! cleanTo
-          descPtr = wordPtrToPtr $ WordPtr descWord
+          descPtr  = txqDesc queue cleanTo
       !descriptor <- peek descPtr
       when (tdStatus descriptor .&. 0x1 /= 0) $ do
         writeIORef (txqCleanRef queue) cleanTo

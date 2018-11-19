@@ -31,11 +31,8 @@ import           Lib.Memory
 import           Lib.Prelude
 
 import           Data.IORef
-import           Data.List                      ( zip3 )
-import qualified Data.Vector.Unboxed           as Unboxed
 import           Foreign.Ptr                    ( castPtr
-                                                , ptrToWordPtr
-                                                , WordPtr(..)
+                                                , plusPtr
                                                 )
 import           Foreign.Storable               ( sizeOf
                                                 , alignment
@@ -54,48 +51,53 @@ numTxQueueEntries = 512
 bufferSize :: Int
 bufferSize = 2048
 
-data RxQueue = RxQueue { rxqEntries :: Unboxed.Vector (Word, Word, Word64)
-                       , rxqIndexRef :: IORef Int }
+data RxQueue = RxQueue { rxqDesc :: !(Int -> Ptr ReceiveDescriptor)
+                       , rxqBuf :: !(Int -> Ptr Word8)
+                       , rxqBufPhys :: !(Int -> Word64)
+                       , rxqIndexRef :: !(IORef Int) }
 
-mkRxQueue :: MonadIO m => [Ptr ReceiveDescriptor] -> [Ptr Word8] -> m RxQueue
-mkRxQueue descPtrs bufPtrs = do
-  let bufPhysAddrs = map (translate . VirtAddr) bufPtrs
-  mapM_ writeDescriptor $ zip descPtrs bufPhysAddrs
+mkRxQueue :: MonadIO m => Ptr ReceiveDescriptor -> Ptr Word8 -> Int -> m RxQueue
+mkRxQueue descPtr bufPtr num = do
+  let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
+      buffer i = bufPtr `plusPtr` (i * bufferSize)
+      PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
+      bufferPhys i = bufPhysBase + fromIntegral (i * bufferSize)
+      indices      = [0 .. num - 1]
+      descriptors  = map descriptor indices
+      bufPhysAddrs = map (translate . VirtAddr . buffer) indices
+  mapM_ writeDescriptor $ zip descriptors bufPhysAddrs
   indexRef <- liftIO $ newIORef (0 :: Int)
   return $! RxQueue
-    { rxqEntries  = mkEntryVec descPtrs bufPtrs bufPhysAddrs
+    { rxqDesc     = descriptor
+    , rxqBuf      = buffer
+    , rxqBufPhys  = bufferPhys
     , rxqIndexRef = indexRef
     }
  where
-  writeDescriptor (descPtr, PhysAddr bufPhysAddr) = liftIO
-    $ poke descPtr ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
+  writeDescriptor (ptr, PhysAddr bufPhysAddr) = liftIO
+    $ poke ptr ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
 
-data TxQueue = TxQueue { txqEntries :: Unboxed.Vector (Word, Word, Word64)
+data TxQueue = TxQueue { txqDesc :: !(Int -> Ptr TransmitDescriptor)
+                       , txqBuf :: !(Int -> Ptr Word8)
+                       , txqBufPhys :: !(Int -> Word64)
                        , txqIndexRef :: IORef Int
                        , txqCleanRef :: IORef Int}
 
-mkTxQueue :: MonadIO m => [Ptr TransmitDescriptor] -> [Ptr Word8] -> m TxQueue
-mkTxQueue descPtrs bufPtrs = do
+mkTxQueue :: MonadIO m => Ptr TransmitDescriptor -> Ptr Word8 -> m TxQueue
+mkTxQueue descPtr bufPtr = do
+  let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
+      buffer i = bufPtr `plusPtr` (i * bufferSize)
+      PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
+      bufferPhys i = bufPhysBase + fromIntegral (i * bufferSize)
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
-  let bufPhysAddrs = map (translate . VirtAddr) bufPtrs
   return $! TxQueue
-    { txqEntries  = mkEntryVec descPtrs bufPtrs bufPhysAddrs
+    { txqDesc     = descriptor
+    , txqBuf      = buffer
+    , txqBufPhys  = bufferPhys
     , txqIndexRef = indexRef
     , txqCleanRef = cleanRef
     }
-
-mkEntryVec
-  :: [Ptr a] -> [Ptr Word8] -> [PhysAddr] -> Unboxed.Vector (Word, Word, Word64)
-mkEntryVec descPtrs bufPtrs bufPhysAddrs =
-  let descPtrWords     = map unwrapPtr descPtrs
-      bufPtrWords      = map unwrapPtr bufPtrs
-      bufPhysAddrWords = map unwrapPhys bufPhysAddrs
-      entries          = zip3 descPtrWords bufPtrWords bufPhysAddrWords
-  in  Unboxed.fromList entries
- where
-  unwrapPtr ptr = let WordPtr w = ptrToWordPtr ptr in w
-  unwrapPhys (PhysAddr physAddr) = physAddr
 
 data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: !Word64
                                      , rdHeaderAddr :: !Word64 }
