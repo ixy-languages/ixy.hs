@@ -44,6 +44,7 @@ import           Foreign.Marshal.Array          ( peekArray
                                                 )
 import           Foreign.Marshal.Utils          ( fillBytes )
 import           Foreign.Ptr                    ( plusPtr
+                                                , castPtr
                                                 , wordPtrToPtr
                                                 , WordPtr(..)
                                                 )
@@ -339,14 +340,16 @@ receive dev id num =
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
-          buffer <- peekArray (fromIntegral (rdLength descriptor)) bufPtr
+-- buffer <- {-# SCC "ReadBuf" #-} peekArray (fromIntegral (rdLength descriptor)) bufPtr
+          buffer <-
+            {-# SCC "ReadBuf" #-} B.packCStringLen (castPtr bufPtr, fromIntegral $ rdLength descriptor)
           poke
             descPtr
             ReceiveRead
               { rdBufPhysAddr = fromIntegral bufPhysAddr
               , rdHeaderAddr  = 0
               }
-          go queue index (i + 1) (B.pack buffer : pkts)
+          go queue index (i + 1) (buffer : pkts)
       else do
         shiftTail queue next
         return pkts
@@ -358,14 +361,14 @@ txCleanBatch :: Int
 txCleanBatch = 32
 
 send :: Device -> Int -> [ByteString] -> IO ()
-send dev id pkts = do
+send dev id packets = do
   let queue = devTxQueues dev V.! id
   clean queue
-  go queue pkts
+  go queue packets
   newIndex <- readIORef (txqIndexRef queue)
   set dev (TDT id) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
  where
-  go queue !(pkt : pkts) = do
+  go queue (pkt : pkts) = do
     !curIndex   <- readIORef (txqIndexRef queue)
     !cleanIndex <- readIORef (txqCleanRef queue)
     let !nextIndex = (curIndex + 1) `rem` numTxQueueEntries
