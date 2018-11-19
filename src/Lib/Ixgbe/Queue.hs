@@ -24,6 +24,12 @@ module Lib.Ixgbe.Queue
   , isEndOfPacket
   , nullTransmitDescriptor
   , bufferSize
+  , txqDesc
+  , txqBuf
+  , txqBufPhys
+  , rxqDesc
+  , rxqBuf
+  , rxqBufPhys
   )
 where
 
@@ -51,9 +57,9 @@ numTxQueueEntries = 512
 bufferSize :: Int
 bufferSize = 2048
 
-data RxQueue = RxQueue { rxqDesc :: !(Int -> Ptr ReceiveDescriptor)
-                       , rxqBuf :: !(Int -> Ptr Word8)
-                       , rxqBufPhys :: !(Int -> Word64)
+data RxQueue = RxQueue { rxqDescBase :: {-# UNPACK #-} !(Ptr ReceiveDescriptor)
+                       , rxqBufBase :: {-# UNPACK #-} !(Ptr Word8)
+                       , rxqBufPhysBase :: {-# UNPACK #-} !Word64
                        , rxqIndexRef :: !(IORef Int) }
 
 mkRxQueue :: MonadIO m => Ptr ReceiveDescriptor -> Ptr Word8 -> Int -> m RxQueue
@@ -68,20 +74,33 @@ mkRxQueue descPtr bufPtr num = do
   mapM_ writeDescriptor $ zip descriptors bufPhysAddrs
   indexRef <- liftIO $ newIORef (0 :: Int)
   return $! RxQueue
-    { rxqDesc     = descriptor
-    , rxqBuf      = buffer
-    , rxqBufPhys  = bufferPhys
-    , rxqIndexRef = indexRef
+    { rxqDescBase    = descPtr
+    , rxqBufBase     = bufPtr
+    , rxqBufPhysBase = bufPhysBase
+    , rxqIndexRef    = indexRef
     }
  where
   writeDescriptor (ptr, PhysAddr bufPhysAddr) = liftIO
     $ poke ptr ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
 
-data TxQueue = TxQueue { txqDesc :: !(Int -> Ptr TransmitDescriptor)
-                       , txqBuf :: !(Int -> Ptr Word8)
-                       , txqBufPhys :: !(Int -> Word64)
-                       , txqIndexRef :: IORef Int
-                       , txqCleanRef :: IORef Int}
+{-# INLINE rxqDesc #-}
+rxqDesc :: RxQueue -> Int -> Ptr ReceiveDescriptor
+rxqDesc queue i =
+  rxqDescBase queue `plusPtr` (i * sizeOf nullReceiveDescriptor)
+
+{-# INLINE rxqBuf #-}
+rxqBuf :: RxQueue -> Int -> Ptr Word8
+rxqBuf queue i = rxqBufBase queue `plusPtr` (i * bufferSize)
+
+{-# INLINE rxqBufPhys #-}
+rxqBufPhys :: RxQueue -> Int -> Word64
+rxqBufPhys queue i = rxqBufPhysBase queue + fromIntegral (i * bufferSize)
+
+data TxQueue = TxQueue { txqDescBase :: {-# UNPACK #-} !(Ptr TransmitDescriptor)
+                       , txqBufBase :: {-# UNPACK #-} !(Ptr Word8)
+                       , txqBufPhysBase :: {-# UNPACK #-} !Word64
+                       , txqIndexRef :: !(IORef Int)
+                       , txqCleanRef :: !(IORef Int)}
 
 mkTxQueue :: MonadIO m => Ptr TransmitDescriptor -> Ptr Word8 -> m TxQueue
 mkTxQueue descPtr bufPtr = do
@@ -92,12 +111,25 @@ mkTxQueue descPtr bufPtr = do
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
   return $! TxQueue
-    { txqDesc     = descriptor
-    , txqBuf      = buffer
-    , txqBufPhys  = bufferPhys
-    , txqIndexRef = indexRef
-    , txqCleanRef = cleanRef
+    { txqDescBase    = descPtr
+    , txqBufBase     = bufPtr
+    , txqBufPhysBase = bufPhysBase
+    , txqIndexRef    = indexRef
+    , txqCleanRef    = cleanRef
     }
+
+{-# INLINE txqDesc #-}
+txqDesc :: TxQueue -> Int -> Ptr TransmitDescriptor
+txqDesc queue i =
+  txqDescBase queue `plusPtr` (i * sizeOf nullTransmitDescriptor)
+
+{-# INLINE txqBuf #-}
+txqBuf :: TxQueue -> Int -> Ptr Word8
+txqBuf queue i = txqBufBase queue `plusPtr` (i * bufferSize)
+
+{-# INLINE txqBufPhys #-}
+txqBufPhys :: TxQueue -> Int -> Word64
+txqBufPhys queue i = txqBufPhysBase queue + fromIntegral (i * bufferSize)
 
 data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: !Word64
                                      , rdHeaderAddr :: !Word64 }
