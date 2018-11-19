@@ -373,10 +373,10 @@ send dev id packets = do
   set dev (TDT id) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
  where
   go queue (pkt : pkts) = do
-    !curIndex   <- readIORef (txqIndexRef queue)
-    !cleanIndex <- readIORef (txqCleanRef queue)
-    let !nextIndex = (curIndex + 1) `rem` numTxQueueEntries
-    unless (nextIndex == cleanIndex) $ do
+    !curIndex   <- {-# SCC "ReadIndex" #-} readIORef (txqIndexRef queue)
+    !cleanIndex <- {-# SCC "ReadClean" #-} readIORef (txqCleanRef queue)
+    let !nextIndex = {-# SCC "NextIndex" #-} (curIndex + 1) `rem` numTxQueueEntries
+    unless (nextIndex == cleanIndex) $ {-# SCC "Working" #-} do
       let
         descPtr            = txqDesc queue curIndex
         bufPtr             = txqBuf queue curIndex
@@ -387,7 +387,7 @@ send dev id packets = do
         frameCheckSequence = 0x2000000
         descExt            = 0x20000000
         advDesc            = 0x300000
-        cmdTypeLen         = (.|.)
+        cmdTypeLen         = {-# SCC cmdTypeLen #-} (.|.)
           (   endOfPacket
           .|. reportStatus
           .|. frameCheckSequence
@@ -398,7 +398,7 @@ send dev id packets = do
       -- TODO: unsafeAsCStringLen maybe?
       {-# SCC "PokeBuf" #-} unsafeUseAsCStringLen pkt (\(ptr, len) -> copyBytes bufPtr (castPtr ptr) len)
       {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
-      writeIORef (txqIndexRef queue) nextIndex
+      {-# SCC "BumpIndex" #-} writeIORef (txqIndexRef queue) nextIndex
       go queue pkts
   go _ [] = return ()
   clean !queue = do
