@@ -39,9 +39,7 @@ import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
 import qualified Data.Vector.Unboxed           as Unboxed
-import           Foreign.Marshal.Array          ( peekArray
-                                                , pokeArray
-                                                )
+import           Foreign.Marshal.Array          ( pokeArray )
 import           Foreign.Marshal.Utils          ( fillBytes )
 import           Foreign.Ptr                    ( plusPtr
                                                 , castPtr
@@ -340,7 +338,6 @@ receive dev id num =
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
--- buffer <- {-# SCC "ReadBuf" #-} peekArray (fromIntegral (rdLength descriptor)) bufPtr
           buffer <-
             {-# SCC "ReadBuf" #-} B.packCStringLen (castPtr bufPtr, fromIntegral $ rdLength descriptor)
           poke
@@ -391,14 +388,8 @@ send dev id packets = do
           .|. advDesc
           )
 
-      pokeArray bufPtr $ B.unpack pkt
-      poke
-        descPtr
-        TransmitRead
-          { tdBufPhysAddr  = bufPhysAddr
-          , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size
-          , tdOlInfoStatus = fromIntegral $ shift size 14
-          }
+      {-# SCC "PokeBuf" #-} pokeArray bufPtr $ B.unpack pkt
+      {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
       writeIORef (txqIndexRef queue) nextIndex
       go queue pkts
   go _ [] = return ()
