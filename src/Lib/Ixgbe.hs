@@ -35,6 +35,7 @@ import           Lib.Prelude             hiding ( get
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import qualified Data.ByteString               as B
+import           Data.ByteString.Unsafe         ( unsafeUseAsCStringLen )
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
@@ -334,24 +335,25 @@ receive dev id num =
     return pkts
   go queue !index !i !pkts = do
     let next        = (index + i) `rem` numRxQueueEntries
-        descPtr     = rxqDesc queue next
-        bufPtr      = rxqBuf queue next
-        bufPhysAddr = rxqBufPhys queue next
-    descriptor <- peek descPtr
+        descPtr     = {-# SCC "GetDesc" #-} rxqDesc queue next
+        bufPtr      = {-# SCC "GetBuf" #-} rxqBuf queue next
+        bufPhysAddr = {-# SCC "GetBufPhys" #-} rxqBufPhys queue next
+    descriptor <- {-# SCC "PeekDesc" #-} peek descPtr
     if isDone descriptor
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
 -- This had an SCC annotation, but tiffany breaks it. Thx.
-          buffer <- B.packCStringLen
+          buffer <- {-# SCC "PackBuf" #-} B.packCStringLen
             (castPtr bufPtr, fromIntegral $ rdLength descriptor)
-          poke
+          {-# SCC "PokeResetDesc" #-} poke
             descPtr
             ReceiveRead
               { rdBufPhysAddr = fromIntegral bufPhysAddr
               , rdHeaderAddr  = 0
               }
-          go queue index (i + 1) (buffer : pkts)
+          let pkts' = {-# SCC "ConsPkt" #-} buffer : pkts
+          go queue index (i + 1) pkts'
       else do
         shiftTail queue next
         return pkts
@@ -394,7 +396,7 @@ send dev id packets = do
           )
 
       -- TODO: unsafeAsCStringLen maybe?
-      {-# SCC "PokeBuf" #-} B.useAsCStringLen pkt (\(ptr, len) -> copyBytes bufPtr (castPtr ptr) len)
+      {-# SCC "PokeBuf" #-} unsafeUseAsCStringLen pkt (\(ptr, len) -> copyBytes bufPtr (castPtr ptr) len)
       {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
       writeIORef (txqIndexRef queue) nextIndex
       go queue pkts
