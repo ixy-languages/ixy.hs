@@ -340,8 +340,9 @@ receive dev id num =
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
-          buffer <-
-            {-# SCC "ReadBuf" #-} B.packCStringLen (castPtr bufPtr, fromIntegral $ rdLength descriptor)
+-- This had an SCC annotation, but tiffany breaks it. Thx.
+          buffer <- B.packCStringLen
+            (castPtr bufPtr, fromIntegral $ rdLength descriptor)
           poke
             descPtr
             ReceiveRead
@@ -390,8 +391,7 @@ send dev id packets = do
           .|. advDesc
           )
 
-      -- {-# SCC "PokeBuf" #-} pokeArray bufPtr $ B.unpack pkt
-      -- unsafeAsCStringLen would be cool, but doesn't store a copy so problems with buffer?
+      -- TODO: unsafeAsCStringLen maybe?
       {-# SCC "PokeBuf" #-} B.useAsCStringLen pkt $ uncurry (copyBytes bufPtr)
       {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
       writeIORef (txqIndexRef queue) nextIndex
