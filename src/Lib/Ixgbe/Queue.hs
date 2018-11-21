@@ -67,7 +67,6 @@ mkRxQueue descPtr bufPtr num = do
   let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
       buffer i = bufPtr `plusPtr` (i * bufferSize)
       PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
-      bufferPhys i = bufPhysBase + fromIntegral (i * bufferSize)
       indices      = [0 .. num - 1]
       descriptors  = map descriptor indices
       bufPhysAddrs = map (translate . VirtAddr . buffer) indices
@@ -104,10 +103,7 @@ data TxQueue = TxQueue { txqDescBase :: {-# UNPACK #-} !(Ptr TransmitDescriptor)
 
 mkTxQueue :: MonadIO m => Ptr TransmitDescriptor -> Ptr Word8 -> m TxQueue
 mkTxQueue descPtr bufPtr = do
-  let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
-      buffer i = bufPtr `plusPtr` (i * bufferSize)
-      PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
-      bufferPhys i = bufPhysBase + fromIntegral (i * bufferSize)
+  let PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
   return $! TxQueue

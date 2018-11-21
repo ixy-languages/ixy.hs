@@ -334,25 +334,24 @@ receive dev id num =
     shiftTail queue next
     return pkts
   go queue !index !i !pkts = do
-    let next        = (index + i) `rem` numRxQueueEntries
-        descPtr     = {-# SCC "GetDesc" #-} rxqDesc queue next
-        bufPtr      = {-# SCC "GetBuf" #-} rxqBuf queue next
-        bufPhysAddr = {-# SCC "GetBufPhys" #-} rxqBufPhys queue next
-    descriptor <- {-# SCC "PeekDesc" #-} peek descPtr
+    let !next        = (index + i) `rem` numRxQueueEntries
+        !descPtr     = {-# SCC "GetDesc" #-} rxqDesc queue next
+        !bufPtr      = {-# SCC "GetBuf" #-} rxqBuf queue next
+        !bufPhysAddr = {-# SCC "GetBufPhys" #-} rxqBufPhys queue next
+    !descriptor <- {-# SCC "PeekDesc" #-} peek descPtr
     if isDone descriptor
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
 -- This had an SCC annotation, but tiffany breaks it. Thx.
-          buffer <- {-# SCC "PackBuf" #-} B.packCStringLen
-            (castPtr bufPtr, fromIntegral $ rdLength descriptor)
+          !buffer <- {-# SCC "PackBuf" #-} B.packCStringLen (castPtr bufPtr, fromIntegral $ rdLength descriptor)
           {-# SCC "PokeResetDesc" #-} poke
             descPtr
             ReceiveRead
               { rdBufPhysAddr = fromIntegral bufPhysAddr
               , rdHeaderAddr  = 0
               }
-          let pkts' = {-# SCC "ConsPkt" #-} buffer : pkts
+          let !pkts' = {-# SCC "ConsPkt" #-} buffer : pkts
           go queue index (i + 1) pkts'
       else do
         shiftTail queue next
