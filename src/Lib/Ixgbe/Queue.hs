@@ -48,6 +48,7 @@ import           Foreign.Storable               ( sizeOf
                                                 , peekByteOff
                                                 , pokeByteOff
                                                 )
+import           Foreign.Marshal.Utils          ( fillBytes )
 
 numRxQueueEntries :: Int
 numRxQueueEntries = 512
@@ -70,7 +71,8 @@ mkRxQueue :: (MonadThrow m, MonadIO m, MonadLogger m) => m RxQueue
 mkRxQueue = do
   -- Setup the descriptors and buffers.
   memPool <- mkMemPool $ numRxQueueEntries + numTxQueueEntries
-  descPtr <- allocateMem (numRxQueueEntries * sizeOf nullReceiveDescriptor) True
+  descPtr <- allocateDescriptors
+    (numRxQueueEntries * sizeOf nullReceiveDescriptor)
   let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
   ids <- mapM (setupDescriptor memPool)
               [ descriptor i | i <- [0 .. numRxQueueEntries - 1] ]
@@ -106,8 +108,8 @@ data TxQueue = TxQueue { txqDescriptor :: Int -> Ptr TransmitDescriptor
 
 mkTxQueue :: (MonadThrow m, MonadIO m, MonadLogger m) => m TxQueue
 mkTxQueue = do
-  descPtr <- allocateMem (numTxQueueEntries * sizeOf nullTransmitDescriptor)
-                         True
+  descPtr <- allocateDescriptors
+    (numTxQueueEntries * sizeOf nullTransmitDescriptor)
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
   mapRef   <- liftIO $ newIORef $ Unbox.generate numTxQueueEntries identity
@@ -176,3 +178,12 @@ instance Storable TransmitDescriptor where
 nullTransmitDescriptor :: TransmitDescriptor
 nullTransmitDescriptor =
   TransmitRead {tdBufPhysAddr = 0, tdCmdTypeLen = 0, tdOlInfoStatus = 0}
+
+-- $ Memory
+
+allocateDescriptors
+  :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
+allocateDescriptors size = do
+  descPtr <- allocateMem size True
+  liftIO $ fillBytes descPtr 0xFF size
+  return descPtr

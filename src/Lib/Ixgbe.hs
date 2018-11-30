@@ -38,9 +38,6 @@ import qualified Data.ByteString               as B
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
-import           Foreign.Marshal.Utils          ( fillBytes
-                                                , copyBytes
-                                                )
 import           Foreign.Ptr                    ( plusPtr
                                                 , castPtr
                                                 )
@@ -418,14 +415,6 @@ dump dev = foldr (<>) "" <$> forM [0, 0x2 .. 0xE000] (showRegister . toEnum)
       return $ show register <> ": " <> T.pack (showHex current "") <> "\n"
     else return ""
 
--- $ Memory
-
-allocateDescriptors
-  :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
-allocateDescriptors size = do
-  descPtr <- allocateMem size True
-  liftIO $ fillBytes descPtr 0xFF size
-  return descPtr
 
 -- $ Link Speed
 

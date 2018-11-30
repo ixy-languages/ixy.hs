@@ -132,7 +132,7 @@ sizeOffset :: Int
 sizeOffset = addrOffset + sizeOf (0 :: Word64)
 
 dataOffset :: Int
-dataOffset = dataOffset + sizeOf (0 :: Int)
+dataOffset = sizeOffset + sizeOf (0 :: Int)
 
 data MemPool = MemPool { mpBaseAddr :: Ptr Word8
                        , mpNumEntries :: Int
