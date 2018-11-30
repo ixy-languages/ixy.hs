@@ -24,19 +24,20 @@ module Lib.Ixgbe.Queue
   , isEndOfPacket
   , nullTransmitDescriptor
   , bufferSize
-  , txqDesc
-  , txqBuf
-  , txqBufPhys
-  , rxqDesc
-  , rxqBuf
-  , rxqBufPhys
+  , rxMap
+  , rxGetMapping
+  , txMap
+  , txGetMapping
   )
 where
 
 import           Lib.Memory
 import           Lib.Prelude
 
+import           Control.Monad.Catch            ( MonadThrow )
+import           Control.Monad.Logger
 import           Data.IORef
+import qualified Data.Vector.Unboxed           as Unbox
 import           Foreign.Ptr                    ( castPtr
                                                 , plusPtr
                                                 )
@@ -57,84 +58,82 @@ numTxQueueEntries = 512
 bufferSize :: Int
 bufferSize = 2048
 
-data RxQueue = RxQueue { rxqDescBase :: {-# UNPACK #-} !(Ptr ReceiveDescriptor)
-                       , rxqBufBase :: {-# UNPACK #-} !(Ptr Word8)
-                       , rxqBufPhysBase :: {-# UNPACK #-} !Word64
-                       , rxqIndexRef :: !(IORef Int) }
+-- $ Queues
 
-mkRxQueue :: MonadIO m => Ptr ReceiveDescriptor -> Ptr Word8 -> Int -> m RxQueue
-mkRxQueue descPtr bufPtr num = do
+data RxQueue = RxQueue { rxqDescriptor :: Int -> Ptr ReceiveDescriptor
+                       , rxqMemPool :: !MemPool
+                       , rxqMapRef :: !(IORef (Unbox.Vector Int))
+                       , rxqIndexRef :: !(IORef Int)
+                       }
+
+mkRxQueue :: (MonadThrow m, MonadIO m, MonadLogger m) => m RxQueue
+mkRxQueue = do
+  -- Setup the descriptors and buffers.
+  memPool <- mkMemPool $ numRxQueueEntries + numTxQueueEntries
+  descPtr <- allocateMem (numRxQueueEntries * sizeOf nullReceiveDescriptor) True
   let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
-      buffer i = bufPtr `plusPtr` (i * bufferSize)
-      PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
-      bufferPhys i = bufPhysBase + fromIntegral (i * bufferSize)
-      indices      = [0 .. num - 1]
-      descriptors  = map descriptor indices
-      bufPhysAddrs = map (translate . VirtAddr . buffer) indices
-  mapM_ writeDescriptor $ zip descriptors bufPhysAddrs
+  ids <- mapM (setupDescriptor memPool)
+              [ descriptor i | i <- [0 .. numRxQueueEntries - 1] ]
   indexRef <- liftIO $ newIORef (0 :: Int)
+  mapRef   <- liftIO $ newIORef $ Unbox.fromList ids
   return $! RxQueue
-    { rxqDescBase    = descPtr
-    , rxqBufBase     = bufPtr
-    , rxqBufPhysBase = bufPhysBase
-    , rxqIndexRef    = indexRef
+    { rxqDescriptor = descriptor
+    , rxqMemPool    = memPool
+    , rxqMapRef     = mapRef
+    , rxqIndexRef   = indexRef
     }
  where
-  writeDescriptor (ptr, PhysAddr bufPhysAddr) = liftIO
-    $ poke ptr ReceiveRead {rdBufPhysAddr = bufPhysAddr, rdHeaderAddr = 0}
+  setupDescriptor memPool ptr = liftIO $ do
+    buf <- peek =<< allocateBuf memPool
+    let PhysAddr physAddr = pbAddr buf
+    poke ptr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
+    return $ pbId buf
 
-{-# INLINE rxqDesc #-}
-rxqDesc :: RxQueue -> Int -> Ptr ReceiveDescriptor
-rxqDesc queue i =
-  rxqDescBase queue `plusPtr` (i * sizeOf nullReceiveDescriptor)
+rxMap :: RxQueue -> Int -> Int -> IO ()
+rxMap queue index id =
+  modifyIORef' (rxqMapRef queue) (`Unbox.unsafeUpd` [(index, id)])
 
-{-# INLINE rxqBuf #-}
-rxqBuf :: RxQueue -> Int -> Ptr Word8
-rxqBuf queue i = rxqBufBase queue `plusPtr` (i * bufferSize)
+rxGetMapping :: RxQueue -> Int -> IO Int
+rxGetMapping queue index = do
+  rxqMap <- readIORef (rxqMapRef queue)
+  return $ rxqMap Unbox.! (index `mod` numRxQueueEntries)
 
-{-# INLINE rxqBufPhys #-}
-rxqBufPhys :: RxQueue -> Int -> Word64
-rxqBufPhys queue i = rxqBufPhysBase queue + fromIntegral (i * bufferSize)
 
-data TxQueue = TxQueue { txqDescBase :: {-# UNPACK #-} !(Ptr TransmitDescriptor)
-                       , txqBufBase :: {-# UNPACK #-} !(Ptr Word8)
-                       , txqBufPhysBase :: {-# UNPACK #-} !Word64
+data TxQueue = TxQueue { txqDescriptor :: Int -> Ptr TransmitDescriptor
+                       , txqMapRef :: !(IORef (Unbox.Vector Int))
                        , txqIndexRef :: !(IORef Int)
                        , txqCleanRef :: !(IORef Int)}
 
-mkTxQueue :: MonadIO m => Ptr TransmitDescriptor -> Ptr Word8 -> m TxQueue
-mkTxQueue descPtr bufPtr = do
-  let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
-      buffer i = bufPtr `plusPtr` (i * bufferSize)
-      PhysAddr bufPhysBase = translate $ VirtAddr bufPtr
-      bufferPhys i = bufPhysBase + fromIntegral (i * bufferSize)
+mkTxQueue :: (MonadThrow m, MonadIO m, MonadLogger m) => m TxQueue
+mkTxQueue = do
+  descPtr <- allocateMem (numTxQueueEntries * sizeOf nullTransmitDescriptor)
+                         True
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
+  mapRef   <- liftIO $ newIORef $ Unbox.generate numTxQueueEntries identity
+  let descriptor i = descPtr `plusPtr` (i * sizeOf nullTransmitDescriptor)
   return $! TxQueue
-    { txqDescBase    = descPtr
-    , txqBufBase     = bufPtr
-    , txqBufPhysBase = bufPhysBase
-    , txqIndexRef    = indexRef
-    , txqCleanRef    = cleanRef
+    { txqDescriptor = descriptor
+    , txqMapRef     = mapRef
+    , txqIndexRef   = indexRef
+    , txqCleanRef   = cleanRef
     }
 
-{-# INLINE txqDesc #-}
-txqDesc :: TxQueue -> Int -> Ptr TransmitDescriptor
-txqDesc queue i =
-  txqDescBase queue `plusPtr` (i * sizeOf nullTransmitDescriptor)
+txMap :: TxQueue -> Int -> Int -> IO ()
+txMap queue index id =
+  modifyIORef' (txqMapRef queue) (`Unbox.unsafeUpd` [(index, id)])
 
-{-# INLINE txqBuf #-}
-txqBuf :: TxQueue -> Int -> Ptr Word8
-txqBuf queue i = txqBufBase queue `plusPtr` (i * bufferSize)
+txGetMapping :: TxQueue -> Int -> IO Int
+txGetMapping queue index = do
+  txqMap <- readIORef (txqMapRef queue)
+  return $ txqMap Unbox.! (index `mod` numTxQueueEntries)
 
-{-# INLINE txqBufPhys #-}
-txqBufPhys :: TxQueue -> Int -> Word64
-txqBufPhys queue i = txqBufPhysBase queue + fromIntegral (i * bufferSize)
+-- $ Descriptors
 
-data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: !Word64
-                                     , rdHeaderAddr :: !Word64 }
-                         | ReceiveWriteback { rdStatus :: !Word32
-                                            , rdLength :: !Word16}
+data ReceiveDescriptor = ReceiveRead { rdBufPhysAddr :: {-# UNPACK #-} !Word64
+                                     , rdHeaderAddr :: {-# UNPACK #-} !Word64 }
+                         | ReceiveWriteback { rdStatus :: {-# UNPACK #-} !Word32
+                                            , rdLength :: {-# UNPACK #-} !Word16}
 
 instance Storable ReceiveDescriptor where
   sizeOf _ = 16
@@ -157,10 +156,10 @@ isDone desc = testBit (rdStatus desc) 0
 isEndOfPacket :: ReceiveDescriptor -> Bool
 isEndOfPacket desc = testBit (rdStatus desc) 1
 
-data TransmitDescriptor = TransmitRead { tdBufPhysAddr :: !Word64
-                                       , tdCmdTypeLen :: !Word32
-                                       , tdOlInfoStatus :: !Word32 }
-                          | TransmitWriteback { tdStatus :: !Word32 }
+data TransmitDescriptor = TransmitRead { tdBufPhysAddr :: {-# UNPACK #-} !Word64
+                                       , tdCmdTypeLen :: {-# UNPACK #-} !Word32
+                                       , tdOlInfoStatus :: {-# UNPACK #-} !Word32 }
+                          | TransmitWriteback { tdStatus :: {-# UNPACK #-} !Word32 }
 
 instance Storable TransmitDescriptor where
   sizeOf _ = 16

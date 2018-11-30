@@ -12,7 +12,14 @@
 --
 module Lib.Memory
   ( allocateMem
+  , mkMemPool
+  , allocateBuf
+  , readBuf
+  , getBufferPtr
+  , freeBuf
   , translate
+  , MemPool(..)
+  , PacketBuf(..)
   , PhysAddr(..)
   , VirtAddr(..)
   )
@@ -26,11 +33,22 @@ import           Control.Monad.Logger           ( MonadLogger
 import           Control.Monad.Catch     hiding ( bracket )
 import           Data.Binary.Get
 import qualified Data.ByteString               as B
+import           Data.ByteString.Unsafe
+import           Data.IORef
+import           Foreign.Marshal.Utils          ( copyBytes )
 import           Foreign.Ptr                    ( WordPtr(..)
+                                                , castPtr
+                                                , plusPtr
                                                 , ptrToWordPtr
                                                 )
+import           Foreign.Storable               ( sizeOf
+                                                , alignment
+                                                , peek
+                                                , peekByteOff
+                                                , poke
+                                                , pokeByteOff
+                                                )
 import           System.IO.Error                ( userError )
-import           System.IO.Unsafe               ( unsafePerformIO )
 import qualified System.Path                   as Path
 import qualified System.Path.IO                as PathIO
 import           System.Posix.IO                ( closeFd
@@ -84,6 +102,83 @@ allocateMem size contiguous = do
     -- TODO: We should remove this, but not here.
     -- Dir.removeFile fname
     return ptr
+
+-- $ Memory Pools
+data PacketBuf = PacketBuf { pbId :: Int
+                           , pbAddr :: PhysAddr
+                           , pbSize :: Int
+                           , pbData :: ByteString }
+
+instance Storable PacketBuf where
+  sizeOf _ = 2048
+  alignment = sizeOf
+  peek ptr = do
+    id <- peek (castPtr ptr)
+    addr <- peekByteOff ptr addrOffset
+    size <- peekByteOff ptr sizeOffset
+    bufData <- unsafePackCStringLen (castPtr (ptr `plusPtr` dataOffset), size)
+    return PacketBuf {pbId =id , pbAddr = PhysAddr addr, pbSize = size, pbData = bufData}
+  poke ptr buf = do
+    poke (castPtr ptr) $ pbId buf
+    pokeByteOff ptr addrOffset bufAddr
+    pokeByteOff ptr sizeOffset $ pbSize buf
+    unsafeUseAsCStringLen (pbData buf) $ uncurry (copyBytes (ptr `plusPtr` dataOffset))
+   where PhysAddr bufAddr = pbAddr buf
+
+addrOffset :: Int
+addrOffset = sizeOf (0 :: Int)
+
+sizeOffset :: Int
+sizeOffset = addrOffset + sizeOf (0 :: Word64)
+
+dataOffset :: Int
+dataOffset = dataOffset + sizeOf (0 :: Int)
+
+data MemPool = MemPool { mpBaseAddr :: Ptr Word8
+                       , mpNumEntries :: Int
+                       , mpFreeBufs :: IORef [Int]
+                       }
+
+mkMemPool :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m MemPool
+mkMemPool numEntries = do
+  ptr <- allocateMem (numEntries * bufSize) False
+  mapM_ initBuf
+        [ (ptr `plusPtr` (i * bufSize), i) | i <- [0 .. numEntries - 1] ]
+  freeBufsRef <- liftIO $ newIORef [0 .. numEntries - 1]
+  return MemPool
+    { mpBaseAddr   = ptr
+    , mpNumEntries = numEntries
+    , mpFreeBufs   = freeBufsRef
+    }
+ where
+  initBuf (bufPtr, i) = do
+    -- TODO: BufPhysAddr points at data, is this correct?
+    bufPhysAddr <- liftIO $ translate $ VirtAddr (bufPtr `plusPtr` dataOffset)
+    liftIO $ poke
+      bufPtr
+      PacketBuf {pbId = i, pbAddr = bufPhysAddr, pbSize = 0, pbData = B.empty}
+  bufSize = sizeOf (undefined :: PacketBuf)
+
+allocateBuf :: MemPool -> IO (Ptr PacketBuf)
+allocateBuf memPool = do
+  freeBufs <- readIORef $ mpFreeBufs memPool
+  case freeBufs of
+    (x : xs) -> do
+      writeIORef (mpFreeBufs memPool) xs
+      return
+        $         mpBaseAddr memPool
+        `plusPtr` (x * sizeOf (undefined :: PacketBuf))
+    [] -> panic "MemPool is empty."
+
+getBufferPtr :: MemPool -> Int -> Ptr PacketBuf
+getBufferPtr memPool id =
+  mpBaseAddr memPool `plusPtr` (id * sizeOf (undefined :: PacketBuf))
+
+readBuf :: MemPool -> Int -> IO PacketBuf
+readBuf memPool id = peek $ getBufferPtr memPool id
+
+freeBuf :: MemPool -> PacketBuf -> IO ()
+freeBuf memPool buf = modifyIORef (mpFreeBufs memPool) (pbId buf :)
 
 -- $ Utility
 
