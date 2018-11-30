@@ -364,7 +364,7 @@ send dev rxId txId bufs = do
     curIndex   <- readIORef (txqIndexRef queue)
     cleanIndex <- readIORef (txqCleanRef queue)
     let cleanable = if curIndex - cleanIndex < 0
-          then numTxQueueEntries + cleanable
+          then numTxQueueEntries + (curIndex - cleanIndex)
           else curIndex - cleanIndex
     when (cleanable >= txCleanBatch) $ do
       let cleanupTo = if cleanIndex + txCleanBatch - 1 >= numTxQueueEntries
