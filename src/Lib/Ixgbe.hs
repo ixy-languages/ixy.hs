@@ -22,6 +22,7 @@ module Lib.Ixgbe
   , stats
   , setPromisc
   , dump
+  , memPoolOf
   )
 where
 
@@ -317,17 +318,16 @@ receive dev id num =
 txCleanBatch :: Int
 txCleanBatch = 32
 
-send :: Device -> Int -> Int -> [Ptr PacketBuf] -> IO ()
-send dev rxId txId bufs = do
-  let txQueue = devTxQueues dev V.! txId
-  let rxQueue = devRxQueues dev V.! rxId
-  clean txQueue (rxqMemPool rxQueue)
-  nr <- nrOfFreeBufs $ rxqMemPool rxQueue
+send :: Device -> Int -> MemPool -> [Ptr PacketBuf] -> IO ()
+send dev id memPool bufs = do
+  let txQueue = devTxQueues dev V.! id
+  clean txQueue memPool
+  nr <- nrOfFreeBufs memPool
   putStrLn ("Have " <> show nr <> " free bufs." :: Text)
   putStrLn ("Sending " <> show (length bufs) <> "packets..." :: Text)
   go txQueue bufs
   newIndex <- readIORef (txqIndexRef txQueue)
-  set dev (TDT txId) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
+  set dev (TDT id) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
  where
   go queue (bufPtr : bufPtrs) = do
     curIndex   <- readIORef (txqIndexRef queue)
@@ -659,3 +659,6 @@ waitSet dev register value = waitUntil dev register value (== value)
 waitClear :: Device -> Register -> Word32 -> IO ()
 waitClear dev register value = waitUntil dev register value (== 0)
 
+-- $ Helpers
+memPoolOf :: Device -> Int -> MemPool
+memPoolOf dev id = rxqMemPool $ devRxQueues dev V.! id
