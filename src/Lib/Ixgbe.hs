@@ -379,7 +379,7 @@ send dev id memPool bufs = do
           ("Cleaning from " <> show cleanIndex <> " to " <> show cleanupTo :: Text
           )
         cleanDescriptor cleanIndex cleanupTo
-        writeIORef (txqCleanRef queue) (cleanupTo + 1 `rem` numTxQueueEntries)
+        writeIORef (txqCleanRef queue) ((cleanupTo + 1) `rem` numTxQueueEntries)
         clean queue memPool
    where
     cleanDescriptor i end | i == end + 1 = return ()
