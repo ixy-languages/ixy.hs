@@ -322,6 +322,9 @@ send dev rxId txId bufs = do
   let txQueue = devTxQueues dev V.! txId
   let rxQueue = devRxQueues dev V.! rxId
   clean txQueue (rxqMemPool rxQueue)
+  nr <- nrOfFreeBufs $ rxqMemPool rxQueue
+  putStrLn ("Have " <> show nr <> " free bufs." :: Text)
+  putStrLn ("Sending " <> show (length bufs) <> "packets..." :: Text)
   go txQueue bufs
   newIndex <- readIORef (txqIndexRef txQueue)
   set dev (TDT txId) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
@@ -372,8 +375,12 @@ send dev rxId txId bufs = do
             else cleanIndex + txCleanBatch - 1
       descriptor <- peek $ txqDescriptor queue cleanupTo
       when (tdStatus descriptor .&. 0x1 /= 0) $ do
+        putStrLn
+          ("Cleaning from " <> show cleanIndex <> " to " <> show cleanupTo :: Text
+          )
         cleanDescriptor cleanIndex cleanupTo
         writeIORef (txqCleanRef queue) (cleanupTo + 1 `rem` numTxQueueEntries)
+        clean queue memPool
    where
     cleanDescriptor i end | i == end + 1 = return ()
     cleanDescriptor i _                  = do

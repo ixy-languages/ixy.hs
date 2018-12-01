@@ -16,6 +16,7 @@ module Lib.Memory
   , allocateBuf
   , readBuf
   , getBufferPtr
+  , nrOfFreeBufs
   , freeBuf
   , translate
   , MemPool(..)
@@ -169,6 +170,9 @@ allocateBuf memPool = do
         $         mpBaseAddr memPool
         `plusPtr` (x * sizeOf (undefined :: PacketBuf))
     [] -> panic "MemPool is empty."
+
+nrOfFreeBufs :: MemPool -> IO Int
+nrOfFreeBufs memPool = length <$> liftIO (readIORef (mpFreeBufs memPool))
 
 getBufferPtr :: MemPool -> Int -> Ptr PacketBuf
 getBufferPtr memPool id =
