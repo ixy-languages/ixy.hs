@@ -386,8 +386,7 @@ send dev id memPool bufs = do
    where
     cleanDescriptor i end | i == end + 1 = return ()
     cleanDescriptor i end                = do
-      id <- txGetMapping queue i
-      freeBuf memPool =<< readBuf memPool id
+      freeBuf memPool =<< txGetMapping queue i
       cleanDescriptor (i + 1) end
 
 setPromisc :: Device -> Bool -> IO ()

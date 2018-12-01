@@ -184,8 +184,8 @@ getBufferPtr memPool id =
 readBuf :: MemPool -> Int -> IO PacketBuf
 readBuf memPool id = peek $ getBufferPtr memPool id
 
-freeBuf :: MemPool -> PacketBuf -> IO ()
-freeBuf memPool buf = modifyIORef (mpFreeBufs memPool) (pbId buf :)
+freeBuf :: MemPool -> Int -> IO ()
+freeBuf memPool id = modifyIORef (mpFreeBufs memPool) (id :)
 
 -- $ Utility
 

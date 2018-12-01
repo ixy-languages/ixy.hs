@@ -37,7 +37,7 @@ import           Lib.Prelude
 import           Control.Monad.Catch            ( MonadThrow )
 import           Control.Monad.Logger
 import           Data.IORef
-import qualified Data.Vector.Unboxed           as Unbox
+import qualified Data.HashMap.Strict           as Map
 import           Foreign.Ptr                    ( castPtr
                                                 , plusPtr
                                                 )
@@ -63,7 +63,7 @@ bufferSize = 2048
 
 data RxQueue = RxQueue { rxqDescriptor :: Int -> Ptr ReceiveDescriptor
                        , rxqMemPool :: !MemPool
-                       , rxqMapRef :: !(IORef (Unbox.Vector Int))
+                       , rxqMapRef :: !(IORef (Map.HashMap Int Int))
                        , rxqIndexRef :: !(IORef Int)
                        }
 
@@ -77,7 +77,9 @@ mkRxQueue = do
   ids <- mapM (setupDescriptor memPool)
               [ descriptor i | i <- [0 .. numRxQueueEntries - 1] ]
   indexRef <- liftIO $ newIORef (0 :: Int)
-  mapRef   <- liftIO $ newIORef $ Unbox.fromList ids
+  mapRef   <- liftIO $ newIORef $ Map.fromList $ zip
+    [0 .. numRxQueueEntries - 1]
+    ids
   return $! RxQueue
     { rxqDescriptor = descriptor
     , rxqMemPool    = memPool
@@ -92,17 +94,17 @@ mkRxQueue = do
     return $ pbId buf
 
 rxMap :: RxQueue -> Int -> Int -> IO ()
-rxMap queue index id =
-  modifyIORef' (rxqMapRef queue) (`Unbox.unsafeUpd` [(index, id)])
+rxMap queue index id = do
+  m <- readIORef $ rxqMapRef queue
+  writeIORef (rxqMapRef queue) $ Map.insert index id m
 
 rxGetMapping :: RxQueue -> Int -> IO Int
 rxGetMapping queue index = do
-  rxqMap <- readIORef (rxqMapRef queue)
-  return $ rxqMap Unbox.! (index `mod` numRxQueueEntries)
-
+  m <- readIORef (rxqMapRef queue)
+  return $ m Map.! (index `mod` numRxQueueEntries)
 
 data TxQueue = TxQueue { txqDescriptor :: Int -> Ptr TransmitDescriptor
-                       , txqMapRef :: !(IORef (Unbox.Vector Int))
+                       , txqMapRef :: !(IORef (Map.HashMap Int Int))
                        , txqIndexRef :: !(IORef Int)
                        , txqCleanRef :: !(IORef Int)}
 
@@ -112,7 +114,7 @@ mkTxQueue = do
     (numTxQueueEntries * sizeOf nullTransmitDescriptor)
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
-  mapRef   <- liftIO $ newIORef $ Unbox.generate numTxQueueEntries identity
+  mapRef   <- liftIO $ newIORef $ Map.empty
   let descriptor i = descPtr `plusPtr` (i * sizeOf nullTransmitDescriptor)
   return $! TxQueue
     { txqDescriptor = descriptor
@@ -122,13 +124,14 @@ mkTxQueue = do
     }
 
 txMap :: TxQueue -> Int -> Int -> IO ()
-txMap queue index id =
-  modifyIORef' (txqMapRef queue) (`Unbox.unsafeUpd` [(index, id)])
+txMap queue index id = do
+  m <- readIORef $ txqMapRef queue
+  writeIORef (txqMapRef queue) $ Map.insert index id m
 
 txGetMapping :: TxQueue -> Int -> IO Int
 txGetMapping queue index = do
-  txqMap <- readIORef (txqMapRef queue)
-  return $ txqMap Unbox.! (index `mod` numTxQueueEntries)
+  m <- readIORef (txqMapRef queue)
+  return $ m Map.! (index `mod` numTxQueueEntries)
 
 -- $ Descriptors
 
