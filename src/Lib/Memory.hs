@@ -19,6 +19,9 @@ module Lib.Memory
   , nrOfFreeBufs
   , freeBuf
   , translate
+  , addrOffset
+  , sizeOffset
+  , dataOffset
   , MemPool(..)
   , PacketBuf(..)
   , PhysAddr(..)

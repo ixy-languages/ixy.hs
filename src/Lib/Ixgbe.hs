@@ -306,6 +306,10 @@ receive dev id num =
           id <- rxGetMapping queue next
           let bufPtr = getBufferPtr (rxqMemPool queue) id
           rxMap queue next $ pbId newBuf
+          -- Have to poke the correct size into the packet buffer here.
+          pokeByteOff bufPtr
+                      sizeOffset
+                      (fromIntegral $ rdLength descriptor :: Int)
 
           go queue index (i + 1) (bufPtr : pkts)
       else do
@@ -321,7 +325,7 @@ txCleanBatch = 32
 send :: Device -> Int -> MemPool -> [Ptr PacketBuf] -> IO ()
 send dev id memPool bufs = do
   let txQueue = devTxQueues dev V.! id
-  clean txQueue memPool
+  clean txQueue
   nr <- nrOfFreeBufs memPool
   putStrLn ("Have " <> show nr <> " free bufs." :: Text)
   putStrLn ("Sending " <> show (length bufs) <> "packets..." :: Text)
@@ -359,11 +363,9 @@ send dev id memPool bufs = do
           , tdCmdTypeLen   = fromIntegral $ cmdTypeLen $ pbSize buf
           , tdOlInfoStatus = fromIntegral $ shift (pbSize buf) 14
           }
-      -- modifyIORef' (txqIndexRef queue)
-      --              (\cur -> (cur + 1) `rem` numTxQueueEntries)
       go queue bufPtrs
   go _ [] = return ()
-  clean queue memPool = do
+  clean queue = do
     curIndex   <- readIORef (txqIndexRef queue)
     cleanIndex <- readIORef (txqCleanRef queue)
     let cleanable = if curIndex - cleanIndex < 0
@@ -380,7 +382,7 @@ send dev id memPool bufs = do
           )
         cleanDescriptor cleanIndex cleanupTo
         writeIORef (txqCleanRef queue) ((cleanupTo + 1) `rem` numTxQueueEntries)
-        clean queue memPool
+        clean queue
    where
     cleanDescriptor i end | i == end + 1 = return ()
     cleanDescriptor i end                = do
