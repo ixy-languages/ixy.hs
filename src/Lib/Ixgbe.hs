@@ -359,8 +359,8 @@ send dev id memPool bufs = do
           , tdCmdTypeLen   = fromIntegral $ cmdTypeLen $ pbSize buf
           , tdOlInfoStatus = fromIntegral $ shift (pbSize buf) 14
           }
-      modifyIORef' (txqIndexRef queue)
-                   (\cur -> (cur + 1) `rem` numTxQueueEntries)
+      -- modifyIORef' (txqIndexRef queue)
+      --              (\cur -> (cur + 1) `rem` numTxQueueEntries)
       go queue bufPtrs
   go _ [] = return ()
   clean queue memPool = do
@@ -383,9 +383,10 @@ send dev id memPool bufs = do
         clean queue memPool
    where
     cleanDescriptor i end | i == end + 1 = return ()
-    cleanDescriptor i _                  = do
+    cleanDescriptor i end                = do
       id <- txGetMapping queue i
       freeBuf memPool =<< readBuf memPool id
+      cleanDescriptor (i + 1) end
 
 setPromisc :: Device -> Bool -> IO ()
 setPromisc dev flag = if flag
