@@ -280,34 +280,34 @@ reset = do
 -- $ Operations
 
 receive :: Device -> Int -> Int -> IO [Ptr PacketBuf]
-receive dev id num =
+receive !dev !id !num =
   let queue = devRxQueues dev V.! id
   in  do
         index <- readIORef (rxqIndexRef queue)
         go queue index 0 []
  where
-  go queue !index !i !pkts | i == num = do
+  go !queue !index !i !pkts | i == num = do
     let next = (index + i) `rem` numRxQueueEntries
     shiftTail queue next
     return pkts
-  go queue !index !i !pkts = do
-    let next    = (index + i) `rem` numRxQueueEntries
-        descPtr = {-# SCC "GetDesc" #-} rxqDescriptor queue next
-    descriptor <- {-# SCC "PeekDesc" #-} peek descPtr
+  go !queue !index !i !pkts = do
+    let !next    = (index + i) `rem` numRxQueueEntries
+        !descPtr = {-# SCC "GetDesc" #-} rxqDescriptor queue next
+    !descriptor <- {-# SCC "PeekDesc" #-} peek descPtr
     if isDone descriptor
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
 -- Allocate a new buffer for this descriptor and reset it.
-          newBuf <- peek =<< allocateBuf (rxqMemPool queue)
-          let PhysAddr physAddr = pbAddr newBuf
-          poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
+          !newBuf <- {-# SCC "AllocateBuf" #-} peek =<< allocateBuf (rxqMemPool queue)
+          let PhysAddr !physAddr = pbAddr newBuf
+          {-# SCC "PokeNewBuf" #-} poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
           -- Remember to old ptr to the buffer.
-          id <- rxGetMapping queue next
-          let bufPtr = getBufferPtr (rxqMemPool queue) id
+          !id <- rxGetMapping queue next
+          let !bufPtr = getBufferPtr (rxqMemPool queue) id
           rxMap queue next $ pbId newBuf
           -- Have to poke the correct size into the packet buffer here.
-          pokeByteOff bufPtr
+          {-# SCC "CorrectSize" #-} pokeByteOff bufPtr
                       sizeOffset
                       (fromIntegral $ rdLength descriptor :: Int)
 
@@ -315,7 +315,7 @@ receive dev id num =
       else do
         shiftTail queue next
         return pkts
-  shiftTail queue newIndex = do
+  shiftTail !queue !newIndex = do
     set dev (RDT id) $ fromIntegral newIndex
     writeIORef (rxqIndexRef queue) newIndex
 
@@ -323,24 +323,24 @@ txCleanBatch :: Int
 txCleanBatch = 32
 
 send :: Device -> Int -> MemPool -> [Ptr PacketBuf] -> IO ()
-send dev id memPool bufs = do
+send !dev !id !memPool !bufs = do
   let txQueue = devTxQueues dev V.! id
   clean txQueue
   go txQueue bufs
   newIndex <- readIORef (txqIndexRef txQueue)
   set dev (TDT id) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
  where
-  go queue (bufPtr : bufPtrs) = do
-    curIndex   <- readIORef (txqIndexRef queue)
-    cleanIndex <- readIORef (txqCleanRef queue)
-    let next = curIndex + 1 `rem` numTxQueueEntries
+  go !queue (bufPtr : bufPtrs) = do
+    !curIndex   <- readIORef (txqIndexRef queue)
+    !cleanIndex <- readIORef (txqCleanRef queue)
+    let !next = curIndex + 1 `rem` numTxQueueEntries
     unless (next == cleanIndex) $ do
-      buf <- peek bufPtr
+      !buf <- peek bufPtr
       txMap queue curIndex $ pbId buf
       modifyIORef' (txqIndexRef queue)
                    (\cur -> (cur + 1) `rem` numTxQueueEntries)
       let
-        PhysAddr physAddr  = pbAddr buf
+        PhysAddr !physAddr  = pbAddr buf
         endOfPacket        = 0x1000000
         reportStatus       = 0x8000000
         frameCheckSequence = 0x2000000
@@ -363,23 +363,23 @@ send dev id memPool bufs = do
       go queue bufPtrs
   go _ [] = return ()
   clean queue = do
-    curIndex   <- readIORef (txqIndexRef queue)
-    cleanIndex <- readIORef (txqCleanRef queue)
-    let cleanable = if curIndex - cleanIndex < 0
+    !curIndex   <- readIORef (txqIndexRef queue)
+    !cleanIndex <- readIORef (txqCleanRef queue)
+    let !cleanable = if curIndex - cleanIndex < 0
           then numTxQueueEntries + (curIndex - cleanIndex)
           else curIndex - cleanIndex
     when (cleanable >= txCleanBatch) $ do
-      let cleanupTo = if cleanIndex + txCleanBatch - 1 >= numTxQueueEntries
+      let !cleanupTo = if cleanIndex + txCleanBatch - 1 >= numTxQueueEntries
             then cleanIndex + txCleanBatch - 1 - numTxQueueEntries
             else cleanIndex + txCleanBatch - 1
-      descriptor <- peek $ txqDescriptor queue cleanupTo
+      !descriptor <- peek $ txqDescriptor queue cleanupTo
       when (tdStatus descriptor .&. 0x1 /= 0) $ do
         cleanDescriptor cleanIndex cleanupTo
         writeIORef (txqCleanRef queue) ((cleanupTo + 1) `rem` numTxQueueEntries)
         clean queue
    where
-    cleanDescriptor i end | i == end + 1 = return ()
-    cleanDescriptor i end                = do
+    cleanDescriptor !i !end | i == end + 1 = return ()
+    cleanDescriptor !i !end                = do
       freeBuf memPool =<< txGetMapping queue i
       cleanDescriptor (i + 1) end
 
