@@ -326,9 +326,6 @@ send :: Device -> Int -> MemPool -> [Ptr PacketBuf] -> IO ()
 send dev id memPool bufs = do
   let txQueue = devTxQueues dev V.! id
   clean txQueue
-  nr <- nrOfFreeBufs memPool
-  putStrLn ("Have " <> show nr <> " free bufs." :: Text)
-  putStrLn ("Sending " <> show (length bufs) <> "packets..." :: Text)
   go txQueue bufs
   newIndex <- readIORef (txqIndexRef txQueue)
   set dev (TDT id) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
@@ -377,9 +374,6 @@ send dev id memPool bufs = do
             else cleanIndex + txCleanBatch - 1
       descriptor <- peek $ txqDescriptor queue cleanupTo
       when (tdStatus descriptor .&. 0x1 /= 0) $ do
-        putStrLn
-          ("Cleaning from " <> show cleanIndex <> " to " <> show cleanupTo :: Text
-          )
         cleanDescriptor cleanIndex cleanupTo
         writeIORef (txqCleanRef queue) ((cleanupTo + 1) `rem` numTxQueueEntries)
         clean queue

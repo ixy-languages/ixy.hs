@@ -36,8 +36,8 @@ import           Lib.Prelude
 
 import           Control.Monad.Catch            ( MonadThrow )
 import           Control.Monad.Logger
+import qualified Data.Array.IO                 as Array
 import           Data.IORef
-import qualified Data.HashMap.Strict           as Map
 import           Foreign.Ptr                    ( castPtr
                                                 , plusPtr
                                                 )
@@ -63,7 +63,7 @@ bufferSize = 2048
 
 data RxQueue = RxQueue { rxqDescriptor :: Int -> Ptr ReceiveDescriptor
                        , rxqMemPool :: !MemPool
-                       , rxqMapRef :: !(IORef (Map.HashMap Int Int))
+                       , rxqMap :: !(Array.IOUArray Int Int)
                        , rxqIndexRef :: !(IORef Int)
                        }
 
@@ -77,13 +77,11 @@ mkRxQueue = do
   ids <- mapM (setupDescriptor memPool)
               [ descriptor i | i <- [0 .. numRxQueueEntries - 1] ]
   indexRef <- liftIO $ newIORef (0 :: Int)
-  mapRef   <- liftIO $ newIORef $ Map.fromList $ zip
-    [0 .. numRxQueueEntries - 1]
-    ids
+  m        <- liftIO $ Array.newListArray (0, numRxQueueEntries - 1) ids
   return $! RxQueue
     { rxqDescriptor = descriptor
     , rxqMemPool    = memPool
-    , rxqMapRef     = mapRef
+    , rxqMap        = m
     , rxqIndexRef   = indexRef
     }
  where
@@ -94,17 +92,13 @@ mkRxQueue = do
     return $ pbId buf
 
 rxMap :: RxQueue -> Int -> Int -> IO ()
-rxMap queue index id = do
-  m <- readIORef $ rxqMapRef queue
-  writeIORef (rxqMapRef queue) $ Map.insert index id m
+rxMap queue = Array.writeArray (rxqMap queue)
 
 rxGetMapping :: RxQueue -> Int -> IO Int
-rxGetMapping queue index = do
-  m <- readIORef (rxqMapRef queue)
-  return $ m Map.! (index `mod` numRxQueueEntries)
+rxGetMapping queue = Array.readArray (rxqMap queue)
 
 data TxQueue = TxQueue { txqDescriptor :: Int -> Ptr TransmitDescriptor
-                       , txqMapRef :: !(IORef (Map.HashMap Int Int))
+                       , txqMap :: !(Array.IOUArray Int Int)
                        , txqIndexRef :: !(IORef Int)
                        , txqCleanRef :: !(IORef Int)}
 
@@ -114,24 +108,20 @@ mkTxQueue = do
     (numTxQueueEntries * sizeOf nullTransmitDescriptor)
   indexRef <- liftIO $ newIORef (0 :: Int)
   cleanRef <- liftIO $ newIORef (0 :: Int)
-  mapRef   <- liftIO $ newIORef $ Map.empty
+  m        <- liftIO $ Array.newArray_ (0, numTxQueueEntries - 1)
   let descriptor i = descPtr `plusPtr` (i * sizeOf nullTransmitDescriptor)
   return $! TxQueue
     { txqDescriptor = descriptor
-    , txqMapRef     = mapRef
+    , txqMap        = m
     , txqIndexRef   = indexRef
     , txqCleanRef   = cleanRef
     }
 
 txMap :: TxQueue -> Int -> Int -> IO ()
-txMap queue index id = do
-  m <- readIORef $ txqMapRef queue
-  writeIORef (txqMapRef queue) $ Map.insert index id m
+txMap queue = Array.writeArray (txqMap queue)
 
 txGetMapping :: TxQueue -> Int -> IO Int
-txGetMapping queue index = do
-  m <- readIORef (txqMapRef queue)
-  return $ m Map.! (index `mod` numTxQueueEntries)
+txGetMapping queue = Array.readArray (txqMap queue)
 
 -- $ Descriptors
 
