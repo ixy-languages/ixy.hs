@@ -14,14 +14,13 @@ module Lib.Memory
   ( allocateMem
   , mkMemPool
   , allocateBuf
-  , readBuf
-  , getBufferPtr
-  , nrOfFreeBufs
+  , idToPtr
   , freeBuf
   , translate
-  , addrOffset
-  , sizeOffset
-  , dataOffset
+  , peekId
+  , peekAddr
+  , peekSize
+  , pokeSize
   , MemPool(..)
   , PacketBuf(..)
   , PhysAddr(..)
@@ -35,6 +34,7 @@ import           Control.Monad.Logger           ( MonadLogger
                                                 , logDebug
                                                 )
 import           Control.Monad.Catch     hiding ( bracket )
+import qualified Data.Array.IO                 as Array
 import           Data.Binary.Get
 import qualified Data.ByteString               as B
 import           Data.ByteString.Unsafe
@@ -108,6 +108,7 @@ allocateMem size contiguous = do
     return ptr
 
 -- $ Memory Pools
+
 data PacketBuf = PacketBuf { pbId :: Int
                            , pbAddr :: PhysAddr
                            , pbSize :: Int
@@ -121,7 +122,7 @@ instance Storable PacketBuf where
     addr <- peekByteOff ptr addrOffset
     size <- peekByteOff ptr sizeOffset
     bufData <- unsafePackCStringLen (castPtr (ptr `plusPtr` dataOffset), size)
-    return PacketBuf {pbId =id , pbAddr = PhysAddr addr, pbSize = size, pbData = bufData}
+    return PacketBuf {pbId = id, pbAddr = PhysAddr addr, pbSize = size, pbData = bufData}
   poke ptr buf = do
     poke (castPtr ptr) $ pbId buf
     pokeByteOff ptr addrOffset bufAddr
@@ -140,7 +141,8 @@ dataOffset = sizeOffset + sizeOf (0 :: Int)
 
 data MemPool = MemPool { mpBaseAddr :: Ptr Word8
                        , mpNumEntries :: Int
-                       , mpFreeBufs :: IORef [Int]
+                       , mpFreeBufs :: Array.IOUArray Int Int
+                       , mpTop :: IORef Int
                        }
 
 mkMemPool :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m MemPool
@@ -148,15 +150,17 @@ mkMemPool numEntries = do
   ptr <- allocateMem (numEntries * bufSize) False
   mapM_ initBuf
         [ (ptr `plusPtr` (i * bufSize), i) | i <- [0 .. numEntries - 1] ]
-  freeBufsRef <- liftIO $ newIORef [0 .. numEntries - 1]
+  freeBufs <- liftIO
+    $ Array.newListArray (0, numEntries - 1) [0 .. numEntries - 1]
+  topRef <- liftIO $ newIORef (numEntries - 1 :: Int)
   return MemPool
     { mpBaseAddr   = ptr
     , mpNumEntries = numEntries
-    , mpFreeBufs   = freeBufsRef
+    , mpFreeBufs   = freeBufs
+    , mpTop        = topRef
     }
  where
   initBuf (bufPtr, i) = do
-    -- TODO: BufPhysAddr points at data, is this correct?
     bufPhysAddr <- liftIO $ translate $ VirtAddr (bufPtr `plusPtr` dataOffset)
     liftIO $ poke
       bufPtr
@@ -165,27 +169,37 @@ mkMemPool numEntries = do
 
 allocateBuf :: MemPool -> IO (Ptr PacketBuf)
 allocateBuf memPool = do
-  freeBufs <- readIORef $ mpFreeBufs memPool
-  case freeBufs of
-    (x : xs) -> do
-      writeIORef (mpFreeBufs memPool) xs
-      return
-        $         mpBaseAddr memPool
-        `plusPtr` (x * sizeOf (undefined :: PacketBuf))
-    [] -> panic "MemPool is empty."
+  let topRef = mpTop memPool
+  modifyIORef' topRef (\i -> i - 1)
+  top <- readIORef topRef
+  id  <- Array.readArray (mpFreeBufs memPool) top
+  return $ idToPtr memPool id
 
-nrOfFreeBufs :: MemPool -> IO Int
-nrOfFreeBufs memPool = length <$> liftIO (readIORef (mpFreeBufs memPool))
+idToPtr :: MemPool -> Int -> Ptr PacketBuf
+idToPtr memPool id =
+  (mpBaseAddr memPool) `plusPtr` (id * sizeOf (undefined :: PacketBuf))
 
-getBufferPtr :: MemPool -> Int -> Ptr PacketBuf
-getBufferPtr memPool id =
-  mpBaseAddr memPool `plusPtr` (id * sizeOf (undefined :: PacketBuf))
+peekId :: Ptr PacketBuf -> IO Int
+peekId ptr = peek (castPtr ptr)
 
-readBuf :: MemPool -> Int -> IO PacketBuf
-readBuf memPool id = peek $ getBufferPtr memPool id
+peekAddr :: Ptr PacketBuf -> IO PhysAddr
+peekAddr ptr = PhysAddr <$> peekByteOff ptr addrOffset
+
+peekSize :: Ptr PacketBuf -> IO Int
+peekSize ptr = peekByteOff ptr sizeOffset
+
+pokeSize :: Ptr PacketBuf -> Int -> IO ()
+pokeSize ptr size = pokeByteOff ptr sizeOffset size
+
+-- readBuf :: MemPool -> Int -> IO PacketBuf
+-- readBuf memPool id = peek $ idToPtr memPool id
 
 freeBuf :: MemPool -> Int -> IO ()
-freeBuf memPool id = modifyIORef (mpFreeBufs memPool) (id :)
+freeBuf memPool id = do
+  let topRef = mpTop memPool
+  top <- readIORef topRef
+  Array.writeArray (mpFreeBufs memPool) top id
+  modifyIORef' topRef (+ 1)
 
 -- $ Utility
 
