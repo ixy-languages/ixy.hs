@@ -10,8 +10,8 @@ import           Control.Monad.Logger
 import           Data.IORef
 import           Data.Maybe
 import           Foreign.Ptr                    ( castPtr )
-import           Foreign.Storable               ( poke
-                                                , peek
+import           Foreign.Storable               ( pokeByteOff
+                                                , peekByteOff
                                                 )
 import           Protolude
 import           System.Clock
@@ -78,4 +78,4 @@ forward rxDev txDev = do
   send txDev 0 (memPoolOf rxDev 0) (reverse pkts)
  where
   touchPacket ptr =
-    poke (castPtr ptr) =<< (+ 1) <$> (peek (castPtr ptr) :: IO Int)
+    pokeByteOff ptr 24 =<< (+ 1) <$> (peekByteOff ptr 24 :: IO Word8)
