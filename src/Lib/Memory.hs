@@ -152,7 +152,7 @@ mkMemPool numEntries = do
         [ (ptr `plusPtr` (i * bufSize), i) | i <- [0 .. numEntries - 1] ]
   freeBufs <- liftIO
     $ Array.newListArray (0, numEntries - 1) [0 .. numEntries - 1]
-  topRef <- liftIO $ newIORef (numEntries - 1 :: Int)
+  topRef <- liftIO $ newIORef (numEntries :: Int)
   return MemPool
     { mpBaseAddr   = ptr
     , mpNumEntries = numEntries
@@ -189,10 +189,7 @@ peekSize :: Ptr PacketBuf -> IO Int
 peekSize ptr = peekByteOff ptr sizeOffset
 
 pokeSize :: Ptr PacketBuf -> Int -> IO ()
-pokeSize ptr size = pokeByteOff ptr sizeOffset size
-
--- readBuf :: MemPool -> Int -> IO PacketBuf
--- readBuf memPool id = peek $ idToPtr memPool id
+pokeSize ptr = pokeByteOff ptr sizeOffset
 
 freeBuf :: MemPool -> Int -> IO ()
 freeBuf memPool id = do
