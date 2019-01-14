@@ -57,5 +57,5 @@ Check out the [other ixy implementations](https://github.com/ixy-languages).
 ---
 
 ## Profiling
-![Flamegraph](https://raw.githubusercontent.com/ixy-languages/ixy.hs/master/flame.svg)
-![Memgraph](https://raw.githubusercontent.com/ixy-languages/ixy.hs/master/mem.svg)
+![Flamegraph](https://raw.githubusercontent.com/ixy-languages/ixy.hs/master/flame.svg?sanitize=true)
+![Memgraph](https://raw.githubusercontent.com/ixy-languages/ixy.hs/master/mem.svg?sanitize=true)
