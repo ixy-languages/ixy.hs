@@ -53,3 +53,9 @@ DMA may corrupt memory.
 ## Other languages
 
 Check out the [other ixy implementations](https://github.com/ixy-languages).
+
+---
+
+## Profiling
+![Flamegraph](https://raw.githubusercontent.com/ixy-languages/ixy.hs/master/flame.svg)
+![Memgraph](https://raw.githubusercontent.com/ixy-languages/ixy.hs/master/mem.svg)
