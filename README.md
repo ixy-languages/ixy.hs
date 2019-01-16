@@ -24,13 +24,18 @@ Ixy.hs needs hugepages to work. To allocate some use the provided script `setup-
 sudo ./setup-hugetlbfs.sh
 ```
 
-You can then build binaries with `stack build` or run the forwarder application directly by using
-`stack run`.
+Next step is to build ixy.hs with some compiler optimizations, to get extra juice:
+```
+stack build --ghc-options="-O2"
+```
+
+You can then go ahead and run the driver with (replace the PCI ids):
+```
+stack run 0000:00:00.0 0000:00:00.1
+```
 
 The build binaries can be found in
 `.stack-work/dist/x86_64-linux-tinfo6/Cabal-2.2.0.1/build/forwarder/forwarder`.
-
-The PCI addresses of the devices must currently be changed in code.
 
 ### API
 
