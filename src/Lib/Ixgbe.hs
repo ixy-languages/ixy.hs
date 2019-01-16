@@ -319,6 +319,7 @@ txCleanBatch :: Int
 txCleanBatch = 32
 
 send :: Device -> Int -> MemPool -> [Ptr PacketBuf] -> IO ()
+send _ _ _ [] = return ()
 send dev id memPool bufs = do
   let txQueue = devTxQueues dev V.! id
   clean txQueue
