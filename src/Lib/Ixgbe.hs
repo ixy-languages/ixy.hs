@@ -365,6 +365,7 @@ txCleanBatch :: Int
 txCleanBatch = 32
 
 send :: Device -> Int -> [ByteString] -> IO ()
+send _ _ [] = return ()
 send dev id packets = do
   let queue = devTxQueues dev V.! id
   clean queue
