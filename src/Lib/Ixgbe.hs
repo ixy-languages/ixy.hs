@@ -35,13 +35,9 @@ import           Lib.Prelude             hiding ( get
 
 import           Control.Monad.Catch
 import           Control.Monad.Logger
-import qualified Data.ByteString               as B
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
-import           Foreign.Ptr                    ( plusPtr
-                                                , castPtr
-                                                )
 import           Foreign.Storable               ( sizeOf
                                                 , peekByteOff
                                                 , pokeByteOff

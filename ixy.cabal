@@ -49,7 +49,6 @@ executable forwarder
                      , monad-logger >= 0.3.29 && <= 0.3.29
                      , text >= 1.2 && <= 1.2.3.0
                      , protolude >= 0.1.6 && <= 0.2.2
-                     , vector >= 0.12.0.1 && <= 0.12.0.1
                      , unix >= 2.7.0.0 && <= 2.7.2.2
   default-language:    Haskell2010
   default-extensions:  OverloadedStrings, NoImplicitPrelude, FlexibleContexts

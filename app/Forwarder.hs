@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Main where
 
@@ -8,23 +8,26 @@ import           Control.Monad
 import           Control.Monad.Catch
 import           Control.Monad.Logger
 import           Data.IORef
+import           Data.List
 import           Data.Maybe
-import           Foreign.Ptr                    ( castPtr )
-import           Foreign.Storable               ( pokeByteOff
-                                                , peekByteOff
-                                                )
+import qualified Data.Text            as T
+import           Foreign.Storable     (peekByteOff, pokeByteOff)
 import           Protolude
 import           System.Clock
 
 newtype App a = App { runApp :: LoggingT IO a } deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadLogger)
 
 main :: IO ()
-main = runStdoutLoggingT (runApp run)
+main = do
+  args <- getArgs
+  let bdfT1 = T.pack $ args !! 0
+      bdfT2 = T.pack $ args !! 1
+  runStdoutLoggingT (runApp $ run bdfT1 bdfT2)
 
-run :: App ()
-run = do
-  dev1    <- fromJust <$> newDriver "0000:02:00.0" 1 1
-  dev2    <- fromJust <$> newDriver "0000:02:00.1" 1 1
+run :: Text -> Text -> App ()
+run bdfT1 bdfT2 = do
+  dev1    <- fromJust <$> newDriver bdfT1 1 1
+  dev2    <- fromJust <$> newDriver bdfT2 1 1
   counter <- liftIO $ newIORef (0 :: Int)
   liftIO $ loop counter dev1 dev2
 
@@ -45,7 +48,6 @@ loop counter dev1 dev2 = do
         when
           (sec diffTime >= 1)
           (do
-            putStrLn ("Diff was: " <> show diffTime :: Text)
             !st1 <- stats dev1
             !st2 <- stats dev2
             let mult =
@@ -62,7 +64,7 @@ loop counter dev1 dev2 = do
             putStrLn
               ("Driver 2 -> RX: "
               <> show (fromIntegral (stRxPkts st2) / divisor)
-              <> " Mpps | TX: "
+              <> "Mpps | TX: "
               <> show (fromIntegral (stTxPkts st2) / divisor)
               <> "Mpps" :: Text
               )
