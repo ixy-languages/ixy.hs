@@ -22,6 +22,7 @@ module Lib.Ixgbe
   , stats
   , setPromisc
   , dump
+  , memPoolOf
   )
 where
 
@@ -34,17 +35,9 @@ import           Lib.Prelude             hiding ( get
 
 import           Control.Monad.Catch
 import           Control.Monad.Logger
-import qualified Data.ByteString               as B
-import           Data.ByteString.Unsafe         ( unsafeUseAsCStringLen )
 import           Data.IORef
 import qualified Data.Text                     as T
 import qualified Data.Vector                   as V
-import           Foreign.Marshal.Utils          ( fillBytes
-                                                , copyBytes
-                                                )
-import           Foreign.Ptr                    ( plusPtr
-                                                , castPtr
-                                                )
 import           Foreign.Storable               ( sizeOf
                                                 , peekByteOff
                                                 , pokeByteOff
@@ -123,8 +116,7 @@ initRx numRx = do
   -- Enable accepting of breadcast packets.
   liftIO $ setMask dev FCTRL broadcastAcceptMode
   -- Do per-queue configuration.
-  ptrs <- mapM setupMem [0 .. numRx - 1]
-  mapM_ setupQueue $ zip ptrs [0 ..]
+  queues <- mapM setupQueue [0 .. numRx - 1]
   -- No snoop disable.
   liftIO $ setMask dev CTRL_EXT noSnoopDisable
   -- Magic flags for broken feature.
@@ -133,25 +125,15 @@ initRx numRx = do
   -- Enable Rx again.
   liftIO $ setMask dev RXCTRL rxEnable
 
-  mapM makeQueue $ zip ptrs [0 ..]
+  mapM_ startQueue [0 .. numRx - 1]
+  return $! queues
  where
   rxEnable            = 0x1
   bSize               = 0x20000
   crcStrip            = 0x2
   broadcastAcceptMode = 0x400
   noSnoopDisable      = 0x10000
-  setupMem _ = do
-    descPtr <-
-      allocateDescriptors $ numRxQueueEntries * sizeOf nullReceiveDescriptor
-    bufPtr <- allocateMem (numRxQueueEntries * bufferSize) True
-    let indices = [0 .. numRxQueueEntries - 1]
-        descPtrs =
-          [ descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
-          | i <- indices
-          ]
-        bufPtrs = [ bufPtr `plusPtr` (i * bufferSize) | i <- indices ]
-    return (descPtrs, bufPtrs)
-  setupQueue ((descPtrs, _), id) = do
+  setupQueue id = do
     $(logDebug) $ "Initializing rx queue " <> show id <> "."
     -- Enable advanced receive descriptors.
     dev             <- ask
@@ -162,50 +144,41 @@ initRx numRx = do
     -- Enable dropping of packets, when all descriptors are full.
     liftIO $ setMask dev (SRRCTL id) dropEnable
     -- Setup descriptor ring.
-    case head descPtrs of
-      Just descPtr ->
-        let (PhysAddr physAddr) = translate (VirtAddr descPtr)
-        in  do
-              liftIO $ do
-                set dev (RDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
-                set dev (RDBAH id) $ fromIntegral $ shift physAddr (-32)
-                set dev (RDLEN id)
-                  $ fromIntegral
-                  $ length descPtrs
-                  * sizeOf nullReceiveDescriptor
-              $(logDebug)
-                $  "Rx Ring "
-                <> show id
-                <> " at "
-                <> show descPtr
-                <> "(phys="
-                <> T.pack (showHex physAddr "")
-                <> ")."
-               -- Set ring to empty at the start.
-              liftIO $ do
-                set dev (RDH id) 0
-                set dev (RDT id) 0
-      Nothing -> throwM $ userError "Descriptor pointer list was empty."
+    queue             <- mkRxQueue
+    PhysAddr physAddr <- liftIO $ translate $ VirtAddr $ rxqDescriptor queue 0
+    liftIO $ do
+      set dev (RDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
+      set dev (RDBAH id) $ fromIntegral $ shift physAddr (-32)
+      set dev (RDLEN id)
+        $ fromIntegral
+        $ numRxQueueEntries
+        * sizeOf nullReceiveDescriptor
+    $(logDebug)
+      $  "Rx Ring "
+      <> show id
+      <> " at "
+      <> show (rxqDescriptor queue 0)
+      <> "(phys="
+      <> T.pack (showHex physAddr "")
+      <> ")."
+     -- Set ring to empty at the start.
+    liftIO $ do
+      set dev (RDH id) 0
+      set dev (RDT id) 0
+    return $! queue
     where dropEnable = 0x10000000
-  makeQueue ((descPtrs, bufPtrs), id) = do
+  startQueue id = do
     dev <- ask
-    -- Construct the queue.
-    case (head descPtrs, head bufPtrs) of
-      (Just descPtr, Just bufPtr) -> do
-        queue <- mkRxQueue descPtr bufPtr (length descPtrs)
-        $(logDebug) $ "Starting rx queue " <> show id <> "."
-        -- Enable queue and wait.
-        liftIO $ do
-          setMask dev (RXDCTL id) rxdctlEnable
-          waitSet dev (RXDCTL id) rxdctlEnable
-        -- Set rx queue to full.
-        liftIO $ do
-          set dev (RDH id) 0
-          set dev (RDT id) $ fromIntegral (numRxQueueEntries - 1)
-
-        return $! queue
-        where rxdctlEnable = 0x2000000
-      _ -> throwM $ userError "This really cant happen can it."
+    $(logDebug) $ "Starting rx queue " <> show id <> "."
+    -- Enable queue and wait.
+    liftIO $ do
+      setMask dev (RXDCTL id) rxdctlEnable
+      waitSet dev (RXDCTL id) rxdctlEnable
+    -- Set rx queue to full.
+    liftIO $ do
+      set dev (RDH id) 0
+      set dev (RDT id) $ fromIntegral (numRxQueueEntries - 1)
+    where rxdctlEnable = 0x2000000
 
 initTx
   :: (MonadThrow m, MonadIO m, MonadReader Device m, MonadLogger m)
@@ -225,76 +198,56 @@ initTx numTx = do
     set dev DTXMXSZRQ 0xFFFF
     clearMask dev RTTDCS arbiterDisable
   -- Do per-queue configuration.
-  ptrs <- mapM setupMem [0 .. numTx - 1]
-  mapM_ setupQueue $ zip ptrs [0 ..]
+  queues <- mapM setupQueue [0 .. numTx - 1]
   -- Enable DMA.
   liftIO $ set dev DMATXCTL dmaTxEnable
 
-  mapM makeQueue $ zip ptrs [0 ..]
+  mapM_ startQueue [0 .. numTx - 1]
+  return $! queues
  where
   crcPadEnable   = 0x401
   bSize          = 0xA000
   arbiterDisable = 0x40
   dmaTxEnable    = 0x1
-  setupMem _ = do
-    descPtr <-
-      allocateDescriptors $ numTxQueueEntries * sizeOf nullTransmitDescriptor
-    bufPtr <- allocateMem (numTxQueueEntries * bufferSize) True
-    let indices = [0 .. numTxQueueEntries - 1]
-        descPtrs =
-          [ descPtr `plusPtr` (i * sizeOf nullTransmitDescriptor)
-          | i <- indices
-          ]
-        bufPtrs = [ bufPtr `plusPtr` (i * bufferSize) | i <- indices ]
-    return (descPtrs, bufPtrs)
-  setupQueue ((descPtrs, _), id) = do
+  setupQueue id = do
     $(logDebug) $ "Initializing tx queue " <> show id <> "."
-    dev <- ask
+    dev               <- ask
     -- Setup descriptor ring.
-    case head descPtrs of
-      Just descPtr ->
-        let (PhysAddr physAddr) = translate (VirtAddr descPtr)
-        in  do
-              liftIO $ do
-                set dev (TDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
-                set dev (TDBAH id) $ fromIntegral $ shift physAddr (-32)
-                set dev (TDLEN id)
-                  $ fromIntegral
-                  $ length descPtrs
-                  * sizeOf nullTransmitDescriptor
-              $(logDebug)
-                $  "Tx Ring "
-                <> show id
-                <> " at "
-                <> show descPtr
-                <> "(phys="
-                <> T.pack (showHex physAddr "")
-                <> ")."
-              -- Descriptor writeback magic values.
-              liftIO $ set dev (TXDCTL id) =<< wbMagic <$> get dev (TXDCTL id)
-      Nothing -> throwM $ userError "Descriptor pointer list was empty."
+    queue             <- mkTxQueue
+    PhysAddr physAddr <- liftIO $ translate $ VirtAddr $ txqDescriptor queue 0
+    liftIO $ do
+      set dev (TDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
+      set dev (TDBAH id) $ fromIntegral $ shift physAddr (-32)
+      set dev (TDLEN id)
+        $ fromIntegral
+        $ numTxQueueEntries
+        * sizeOf nullTransmitDescriptor
+    $(logDebug)
+      $  "Tx Ring "
+      <> show id
+      <> " at "
+      <> show (txqDescriptor queue 0)
+      <> "(phys="
+      <> T.pack (showHex physAddr "")
+      <> ")."
+    -- Descriptor writeback magic values.
+    liftIO $ set dev (TXDCTL id) =<< wbMagic <$> get dev (TXDCTL id)
+    return $! queue
    where
     wbMagic =
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
         . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
-  makeQueue ((descPtrs, bufPtrs), id) = do
+  startQueue id = do
     dev <- ask
-    -- Construct the queue.
-    case (head descPtrs, head bufPtrs) of
-      (Just descPtr, Just bufPtr) -> do
-        queue <- mkTxQueue descPtr bufPtr
-        $(logDebug) $ "Starting tx queue " <> show id <> "."
-        -- Tx queue starts out empty.
-        liftIO $ do
-          set dev (TDH id) 0
-          set dev (TDT id) 0
-        -- Enable queue and wait.
-        liftIO $ do
-          setMask dev (TXDCTL id) txdctlEnable
-          waitSet dev (TXDCTL id) txdctlEnable
-
-        return $! queue
-      _ -> throwM $ userError "This really cant happen, can it."
+    $(logDebug) $ "Starting tx queue " <> show id <> "."
+    -- Tx queue starts out empty.
+    liftIO $ do
+      set dev (TDH id) 0
+      set dev (TDT id) 0
+    -- Enable queue and wait.
+    liftIO $ do
+      setMask dev (TXDCTL id) txdctlEnable
+      waitSet dev (TXDCTL id) txdctlEnable
     where txdctlEnable = 0x2000000
 
 initLink :: (MonadIO m, MonadReader Device m) => m ()
@@ -322,98 +275,110 @@ reset = do
 
 -- $ Operations
 
-receive :: Device -> Int -> Int -> IO [ByteString]
+receive :: Device -> Int -> Int -> IO [Ptr PacketBuf]
 receive dev id num =
   let queue = devRxQueues dev V.! id
   in  do
         index <- readIORef (rxqIndexRef queue)
         go queue index 0 []
  where
-  go queue !index !i !pkts | i == num = do
+  go queue !index !i bufs | i == num = do
     let next = (index + i) `rem` numRxQueueEntries
     shiftTail queue next
-    return pkts
-  go queue !index !i !pkts = do
-    let next        = (index + i) `rem` numRxQueueEntries
-        descPtr     = {-# SCC "GetDesc" #-} rxqDesc queue next
-        bufPtr      = {-# SCC "GetBuf" #-} rxqBuf queue next
-        bufPhysAddr = {-# SCC "GetBufPhys" #-} rxqBufPhys queue next
-    descriptor <- {-# SCC "PeekDesc" #-} peek descPtr
+    return bufs
+  go queue !index !i bufs = do
+    let next    = (index + i) `rem` numRxQueueEntries
+        descPtr = rxqDescriptor queue next
+    descriptor <- peek descPtr
     if isDone descriptor
       then if not $ isEndOfPacket descriptor
         then throwIO $ userError "Multi-segment packets are not supported."
         else do
--- This had an SCC annotation, but tiffany breaks it. Thx.
-          buffer <- {-# SCC "PackBuf" #-} B.packCStringLen
-            (castPtr bufPtr, fromIntegral $ rdLength descriptor)
-          {-# SCC "PokeResetDesc" #-} poke
-            descPtr
-            ReceiveRead
-              { rdBufPhysAddr = fromIntegral bufPhysAddr
-              , rdHeaderAddr  = 0
-              }
-          let pkts' = {-# SCC "ConsPkt" #-} buffer : pkts
-          go queue index (i + 1) pkts'
-      else do
-        shiftTail queue next
-        return pkts
-  shiftTail queue newIndex = do
+          let memPool = rxqMemPool queue
+          -- Remember the old buffer to give to the caller.
+          bufPtr <- idToPtr memPool <$> rxGetMapping queue next
+          pokeSize bufPtr $ fromIntegral $ rdLength descriptor
+
+          -- Allocate a new buffer and reset the descriptor.
+          newBufPtr <- allocateBuf memPool
+          rxMap queue next =<< peekId newBufPtr
+          PhysAddr physAddr <- peekAddr newBufPtr
+          poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
+
+          go queue index (i + 1) (bufPtr : bufs)
+      else go queue index num bufs
+  shiftTail !queue !newIndex = do
     set dev (RDT id) $ fromIntegral newIndex
     writeIORef (rxqIndexRef queue) newIndex
 
 txCleanBatch :: Int
 txCleanBatch = 32
 
-send :: Device -> Int -> [ByteString] -> IO ()
-send dev id packets = do
-  let queue = devTxQueues dev V.! id
-  clean queue
-  go queue packets
-  newIndex <- readIORef (txqIndexRef queue)
-  set dev (TDT id) $ fromIntegral $ (newIndex - 1) `mod` numTxQueueEntries
+send :: Device -> Int -> MemPool -> [Ptr PacketBuf] -> IO ()
+send _ _ _ [] = return ()
+send dev id memPool bufs = do
+  let txQueue = devTxQueues dev V.! id
+  clean txQueue
+  cleanIndex <- readIORef (txqCleanRef txQueue)
+  go txQueue cleanIndex bufs
+  set dev (TDT id)
+    =<< (\index -> fromIntegral $ (index - 1) `mod` numTxQueueEntries)
+    <$> readIORef (txqIndexRef txQueue)
  where
-  go queue (pkt : pkts) = do
-    !curIndex   <- {-# SCC "ReadIndex" #-} readIORef (txqIndexRef queue)
-    !cleanIndex <- {-# SCC "ReadClean" #-} readIORef (txqCleanRef queue)
-    let !nextIndex = {-# SCC "NextIndex" #-} (curIndex + 1) `rem` numTxQueueEntries
-    unless (nextIndex == cleanIndex) $ {-# SCC "Working" #-} do
+  go queue !cleanIndex (bufPtr : bufPtrs) = do
+    let indexRef = txqIndexRef queue
+    curIndex <- readIORef indexRef
+    let next = curIndex + 1 `rem` numTxQueueEntries
+    unless (next == cleanIndex) $ do
+      bufId             <- peekId bufPtr
+      PhysAddr physAddr <- peekAddr bufPtr
+      size              <- peekSize bufPtr
+
+      txMap queue curIndex bufId
+      modifyIORef' indexRef (\cur -> (cur + 1) `rem` numTxQueueEntries)
+
       let
-        descPtr            = txqDesc queue curIndex
-        bufPtr             = txqBuf queue curIndex
-        bufPhysAddr        = txqBufPhys queue curIndex
-        size               = B.length pkt
         endOfPacket        = 0x1000000
         reportStatus       = 0x8000000
         frameCheckSequence = 0x2000000
         descExt            = 0x20000000
         advDesc            = 0x300000
-        cmdTypeLen         = {-# SCC cmdTypeLen #-} (.|.)
+        cmdTypeLen         = (.|.)
           (   endOfPacket
           .|. reportStatus
           .|. frameCheckSequence
           .|. descExt
           .|. advDesc
           )
-
-      -- TODO: unsafeAsCStringLen maybe?
-      {-# SCC "PokeBuf" #-} unsafeUseAsCStringLen pkt (\(ptr, len) -> copyBytes bufPtr (castPtr ptr) len)
-      {-# SCC "PokeDesc" #-} poke descPtr TransmitRead { tdBufPhysAddr  = bufPhysAddr , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size , tdOlInfoStatus = fromIntegral $ shift size 14 }
-      {-# SCC "BumpIndex" #-} writeIORef (txqIndexRef queue) nextIndex
-      go queue pkts
-  go _ [] = return ()
-  clean !queue = do
-    !curIndex   <- readIORef (txqIndexRef queue)
-    !cleanIndex <- readIORef (txqCleanRef queue)
-    let !amount = if curIndex - cleanIndex >= 0
-          then curIndex - cleanIndex
-          else numTxQueueEntries - cleanIndex + curIndex
-    when (amount >= txCleanBatch) $ do
-      let !cleanTo = (cleanIndex + txCleanBatch - 1) `mod` numTxQueueEntries
-          descPtr  = txqDesc queue cleanTo
-      !descriptor <- peek descPtr
-      when (tdStatus descriptor .&. 0x1 /= 0) $ do
-        writeIORef (txqCleanRef queue) cleanTo
+      poke
+        (txqDescriptor queue curIndex)
+        TransmitRead
+          { tdBufPhysAddr  = physAddr
+          , tdCmdTypeLen   = fromIntegral $ cmdTypeLen size
+          , tdOlInfoStatus = fromIntegral $ shift size 14
+          }
+      go queue cleanIndex bufPtrs
+  go _ _ [] = return ()
+  clean queue = do
+    curIndex   <- readIORef (txqIndexRef queue)
+    cleanIndex <- readIORef (txqCleanRef queue)
+    let cleanable = if curIndex - cleanIndex < 0
+          then numTxQueueEntries + (curIndex - cleanIndex)
+          else curIndex - cleanIndex
+    when (cleanable >= txCleanBatch) $ do
+      let cleanupTo = if cleanIndex + txCleanBatch - 1 >= numTxQueueEntries
+            then cleanIndex + txCleanBatch - 1 - numTxQueueEntries
+            else cleanIndex + txCleanBatch - 1
+      descriptor <- peek $ txqDescriptor queue cleanupTo
+      when (testBit (tdStatus descriptor) 0) $ do
+        cleanDescriptor cleanIndex cleanupTo
+        writeIORef (txqCleanRef queue) ((cleanupTo + 1) `rem` numTxQueueEntries)
         clean queue
+   where
+    cleanDescriptor !i !end | i == end + 1 = return ()
+    cleanDescriptor !i !end                = do
+      freeBuf memPool =<< txGetMapping queue i
+      cleanDescriptor (i + 1) end
 
 setPromisc :: Device -> Bool -> IO ()
 setPromisc dev flag = if flag
@@ -450,14 +415,6 @@ dump dev = foldr (<>) "" <$> forM [0, 0x2 .. 0xE000] (showRegister . toEnum)
       return $ show register <> ": " <> T.pack (showHex current "") <> "\n"
     else return ""
 
--- $ Memory
-
-allocateDescriptors
-  :: (MonadThrow m, MonadIO m, MonadLogger m) => Int -> m (Ptr a)
-allocateDescriptors size = do
-  descPtr <- allocateMem size True
-  liftIO $ fillBytes descPtr 0xFF size
-  return descPtr
 
 -- $ Link Speed
 
@@ -695,3 +652,6 @@ waitSet dev register value = waitUntil dev register value (== value)
 waitClear :: Device -> Register -> Word32 -> IO ()
 waitClear dev register value = waitUntil dev register value (== 0)
 
+-- $ Helpers
+memPoolOf :: Device -> Int -> MemPool
+memPoolOf dev id = rxqMemPool $ devRxQueues dev V.! id

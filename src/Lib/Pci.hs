@@ -64,7 +64,7 @@ newtype BusDeviceFunction = BDF
 -- To see the formatting requirements see 'BusDeviceFunction'.
 busDeviceFunction :: Text -> Maybe BusDeviceFunction
 busDeviceFunction bdfText
-  | T.unpack bdfText =~ T.unpack "[0-9A-F]{4}:[0-9A-F]{2}:[0-9A-F]{2}.[0-9]"
+  | T.unpack bdfText =~ T.unpack "[0-9A-Fa-f]{4}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}.[0-9]"
   = Just (BDF bdfText)
 busDeviceFunction _ = Nothing
 
