@@ -287,8 +287,10 @@ receive dev id num =
     return bufs
    where postProcess = do
           let index' = (index + i) `rem` numRxQueueEntries
-          set dev (RDT id) $ fromIntegral index'
-          writeIORef (rxqIndexRef queue) index'
+          when (index /= index') $ do
+            let j = (index + i - 1) `rem` numRxQueueEntries
+            set dev (RDT id) $ fromIntegral j
+            writeIORef (rxqIndexRef queue) index'
   go queue !index !i bufs = do
     let next    = (index + i) `rem` numRxQueueEntries
         descPtr = rxqDescriptor queue next
@@ -314,8 +316,10 @@ receive dev id num =
           return bufs
    where postProcess = do
           let index' = (index + i) `rem` numRxQueueEntries
-          set dev (RDT id) $ fromIntegral index'
-          writeIORef (rxqIndexRef queue) index'
+          when (index /= index') $ do
+            let j = (index + i - 1) `rem` numRxQueueEntries
+            set dev (RDT id) $ fromIntegral j
+            writeIORef (rxqIndexRef queue) index'
 
 txCleanBatch :: Int
 txCleanBatch = 32
