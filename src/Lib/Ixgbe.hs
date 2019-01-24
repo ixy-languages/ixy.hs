@@ -306,7 +306,10 @@ receive dev id num =
           poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
 
           go queue index (i + 1) (bufPtr : bufs)
-      else go queue index num bufs
+      -- else go queue index num bufs
+      else do
+          shiftTail queue $ index + i
+          return bufs
   shiftTail !queue !newIndex = do
     set dev (RDT id) $ fromIntegral newIndex
     writeIORef (rxqIndexRef queue) newIndex
