@@ -283,9 +283,12 @@ receive dev id num =
         go queue index 0 []
  where
   go queue !index !i bufs | i == num = do
-    let next = (index + i) `rem` numRxQueueEntries
-    shiftTail queue next
+    postProcess
     return bufs
+   where postProcess = do
+          let index' = (index + i) `rem` numRxQueueEntries
+          set dev (RDT id) $ fromIntegral index'
+          writeIORef (rxqIndexRef queue) index'
   go queue !index !i bufs = do
     let next    = (index + i) `rem` numRxQueueEntries
         descPtr = rxqDescriptor queue next
@@ -306,13 +309,13 @@ receive dev id num =
           poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
 
           go queue index (i + 1) (bufPtr : bufs)
-      -- else go queue index num bufs
       else do
-          shiftTail queue $ index + i
+          postProcess
           return bufs
-  shiftTail !queue !newIndex = do
-    set dev (RDT id) $ fromIntegral newIndex
-    writeIORef (rxqIndexRef queue) newIndex
+   where postProcess = do
+          let index' = (index + i) `rem` numRxQueueEntries
+          set dev (RDT id) $ fromIntegral index'
+          writeIORef (rxqIndexRef queue) index'
 
 txCleanBatch :: Int
 txCleanBatch = 32
