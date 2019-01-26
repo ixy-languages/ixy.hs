@@ -70,7 +70,7 @@ data RxQueue = RxQueue { rxqDescriptor :: Int -> Ptr ReceiveDescriptor
 mkRxQueue :: (MonadThrow m, MonadIO m, MonadLogger m) => m RxQueue
 mkRxQueue = do
   -- Setup the descriptors and buffers.
-  memPool <- mkMemPool $ numRxQueueEntries + numTxQueueEntries
+  memPool <- mkMemPool $ (numRxQueueEntries + numTxQueueEntries) * 2
   descPtr <- allocateDescriptors
     (numRxQueueEntries * sizeOf nullReceiveDescriptor)
   let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)

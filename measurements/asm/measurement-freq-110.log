@@ -1,0 +1,119 @@
+[Debug] Inititializing device 0000:01:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:65:5)
+[Debug] Mapping resource 'resource0' for device 0000:01:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:88:11)
+[Debug] Unbinding driver for device 0000:01:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:149:7)
+[Debug] Device was already unbound. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:154:41)
+[Debug] Enabling DMA for device 0000:01:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:122:7)
+[Info] Initializing 1 rx queues. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:104:5)
+[Debug] Initializing rx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:137:7)
+[Debug] Allocating a memory chunk with size 4194304B (contiguous=False). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Memory src/Lib/Memory.hs:87:5)
+[Debug] Allocating a memory chunk with size 8192B (contiguous=True). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Memory src/Lib/Memory.hs:87:5)
+[Debug] Rx Ring 0 at 0x00007f26f6a00000(phys=121c00000). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:156:7)
+[Debug] Starting rx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:172:7)
+[Info] Initializing 1 tx queues. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:188:5)
+[Debug] Initializing tx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:213:7)
+[Debug] Allocating a memory chunk with size 8192B (contiguous=True). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Memory src/Lib/Memory.hs:87:5)
+[Debug] Tx Ring 0 at 0x00007f26f6800000(phys=121e00000). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:225:7)
+[Debug] Starting tx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:242:7)
+[Debug] Waiting for link... @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:435:5)
+[Debug] Link speed was set to 10GBit/s @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:446:19)
+[Debug] Inititializing device 0000:03:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:65:5)
+[Debug] Mapping resource 'resource0' for device 0000:03:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:88:11)
+[Debug] Unbinding driver for device 0000:03:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:149:7)
+[Debug] Device was already unbound. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:154:41)
+[Debug] Enabling DMA for device 0000:03:00.0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Pci src/Lib/Pci.hs:122:7)
+[Info] Initializing 1 rx queues. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:104:5)
+[Debug] Initializing rx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:137:7)
+[Debug] Allocating a memory chunk with size 4194304B (contiguous=False). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Memory src/Lib/Memory.hs:87:5)
+[Debug] Allocating a memory chunk with size 8192B (contiguous=True). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Memory src/Lib/Memory.hs:87:5)
+[Debug] Rx Ring 0 at 0x00007f26f6200000(phys=121400000). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:156:7)
+[Debug] Starting rx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:172:7)
+[Info] Initializing 1 tx queues. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:188:5)
+[Debug] Initializing tx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:213:7)
+[Debug] Allocating a memory chunk with size 8192B (contiguous=True). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Memory src/Lib/Memory.hs:87:5)
+[Debug] Tx Ring 0 at 0x00007f26f6000000(phys=121600000). @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:225:7)
+[Debug] Starting tx queue 0. @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:242:7)
+[Debug] Waiting for link... @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:435:5)
+[Debug] Link speed was set to 10GBit/s @(ixy-0.1.0.0-FpiRHLJsl0sH2jZnD6kW1z:Lib.Ixgbe src/Lib/Ixgbe.hs:446:19)
+Driver 1 -> RX: 2.062669e-5Mpps | TX: 4.717323e-10Mpps
+Driver 2 -> RX: 1.7314626e-7Mpps | TX: 1.3023914e-9Mpps
+Driver 1 -> RX: 8.422436Mpps | TX: 4.7721367Mpps
+Driver 2 -> RX: 8.284719Mpps | TX: 4.7723536Mpps
+Driver 1 -> RX: 8.423526Mpps | TX: 4.7626867Mpps
+Driver 2 -> RX: 8.311675Mpps | TX: 4.7626867Mpps
+Driver 1 -> RX: 8.4201975Mpps | TX: 4.767531Mpps
+Driver 2 -> RX: 8.285926Mpps | TX: 4.768428Mpps
+Driver 1 -> RX: 8.4185505Mpps | TX: 4.768637Mpps
+Driver 2 -> RX: 8.292154Mpps | TX: 4.768637Mpps
+Driver 1 -> RX: 8.415716Mpps | TX: 4.766827Mpps
+Driver 2 -> RX: 8.304201Mpps | TX: 4.766827Mpps
+Driver 1 -> RX: 8.418697Mpps | TX: 4.763577Mpps
+Driver 2 -> RX: 8.289278Mpps | TX: 4.763481Mpps
+Driver 1 -> RX: 8.420541Mpps | TX: 4.760781Mpps
+Driver 2 -> RX: 8.293359Mpps | TX: 4.7617464Mpps
+Driver 1 -> RX: 8.419611Mpps | TX: 4.761488Mpps
+Driver 2 -> RX: 8.301794Mpps | TX: 4.7614202Mpps
+Driver 1 -> RX: 8.421851Mpps | TX: 4.7605085Mpps
+Driver 2 -> RX: 8.283903Mpps | TX: 4.7605247Mpps
+Driver 1 -> RX: 8.420738Mpps | TX: 4.7524333Mpps
+Driver 2 -> RX: 8.292981Mpps | TX: 4.7523046Mpps
+Driver 1 -> RX: 8.423619Mpps | TX: 4.748786Mpps
+Driver 2 -> RX: 8.3041Mpps | TX: 4.748786Mpps
+Driver 1 -> RX: 8.423341Mpps | TX: 4.754403Mpps
+Driver 2 -> RX: 8.287598Mpps | TX: 4.754321Mpps
+Driver 1 -> RX: 8.421095Mpps | TX: 4.760821Mpps
+Driver 2 -> RX: 8.298646Mpps | TX: 4.7610307Mpps
+Driver 1 -> RX: 8.423258Mpps | TX: 4.7609124Mpps
+Driver 2 -> RX: 8.300378Mpps | TX: 4.7609124Mpps
+Driver 1 -> RX: 8.421719Mpps | TX: 4.7602963Mpps
+Driver 2 -> RX: 8.284478Mpps | TX: 4.7612214Mpps
+Driver 1 -> RX: 8.422094Mpps | TX: 4.760047Mpps
+Driver 2 -> RX: 8.295213Mpps | TX: 4.760047Mpps
+Driver 1 -> RX: 8.41941Mpps | TX: 4.759688Mpps
+Driver 2 -> RX: 8.300324Mpps | TX: 4.759688Mpps
+Driver 1 -> RX: 8.41707Mpps | TX: 4.7574615Mpps
+Driver 2 -> RX: 8.283979Mpps | TX: 4.7571483Mpps
+Driver 1 -> RX: 8.417477Mpps | TX: 4.7551436Mpps
+Driver 2 -> RX: 8.29271Mpps | TX: 4.7560263Mpps
+Driver 1 -> RX: 8.414457Mpps | TX: 4.7558923Mpps
+Driver 2 -> RX: 8.304174Mpps | TX: 4.755824Mpps
+Driver 1 -> RX: 8.419309Mpps | TX: 4.7560287Mpps
+Driver 2 -> RX: 8.285091Mpps | TX: 4.7561016Mpps
+Driver 1 -> RX: 8.416754Mpps | TX: 4.747701Mpps
+Driver 2 -> RX: 8.306785Mpps | TX: 4.7476354Mpps
+Driver 1 -> RX: 8.418874Mpps | TX: 4.7420588Mpps
+Driver 2 -> RX: 8.296613Mpps | TX: 4.7421155Mpps
+Driver 1 -> RX: 8.422967Mpps | TX: 4.735238Mpps
+Driver 2 -> RX: 8.27894Mpps | TX: 4.735107Mpps
+Driver 1 -> RX: 8.421703Mpps | TX: 4.739634Mpps
+Driver 2 -> RX: 8.305056Mpps | TX: 4.7397532Mpps
+Driver 1 -> RX: 8.424115Mpps | TX: 4.744198Mpps
+Driver 2 -> RX: 8.294776Mpps | TX: 4.744197Mpps
+Driver 1 -> RX: 8.422706Mpps | TX: 4.7386284Mpps
+Driver 2 -> RX: 8.283762Mpps | TX: 4.7395253Mpps
+Driver 1 -> RX: 8.423949Mpps | TX: 4.736882Mpps
+Driver 2 -> RX: 8.305873Mpps | TX: 4.736882Mpps
+Driver 1 -> RX: 8.420606Mpps | TX: 4.737079Mpps
+Driver 2 -> RX: 8.290336Mpps | TX: 4.737079Mpps
+Driver 1 -> RX: 8.417681Mpps | TX: 4.7379446Mpps
+Driver 2 -> RX: 8.282337Mpps | TX: 4.7379446Mpps
+Driver 1 -> RX: 8.422936Mpps | TX: 4.7388225Mpps
+Driver 2 -> RX: 8.304569Mpps | TX: 4.7397203Mpps
+Driver 1 -> RX: 8.420894Mpps | TX: 4.7485228Mpps
+Driver 2 -> RX: 8.294954Mpps | TX: 4.7483897Mpps
+Driver 1 -> RX: 8.417553Mpps | TX: 4.7497005Mpps
+Driver 2 -> RX: 8.28248Mpps | TX: 4.7497005Mpps
+Driver 1 -> RX: 8.419928Mpps | TX: 4.744304Mpps
+Driver 2 -> RX: 8.309Mpps | TX: 4.7442384Mpps
+Driver 1 -> RX: 8.416883Mpps | TX: 4.742988Mpps
+Driver 2 -> RX: 8.292222Mpps | TX: 4.743914Mpps
+Driver 1 -> RX: 8.419438Mpps | TX: 4.7454786Mpps
+Driver 2 -> RX: 8.284774Mpps | TX: 4.7454123Mpps
+Driver 1 -> RX: 8.413644Mpps | TX: 4.7480874Mpps
+Driver 2 -> RX: 8.307573Mpps | TX: 4.7482185Mpps
+Driver 1 -> RX: 8.418035Mpps | TX: 4.74965Mpps
+Driver 2 -> RX: 8.292545Mpps | TX: 4.749649Mpps
+Driver 1 -> RX: 8.418793Mpps | TX: 4.7496457Mpps
+Driver 2 -> RX: 8.27887Mpps | TX: 4.7496457Mpps
+Driver 1 -> RX: 8.419068Mpps | TX: 4.7493343Mpps
+Driver 2 -> RX: 8.303459Mpps | TX: 4.7493343Mpps
+Driver 1 -> RX: 8.422546Mpps | TX:

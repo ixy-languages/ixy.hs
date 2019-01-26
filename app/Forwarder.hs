@@ -14,6 +14,7 @@ import qualified Data.Text            as T
 import           Foreign.Storable     (peekByteOff, pokeByteOff)
 import           Protolude
 import           System.Clock
+import Text.Read
 
 newtype App a = App { runApp :: LoggingT IO a } deriving (Functor, Applicative, Monad, MonadIO, MonadCatch, MonadThrow, MonadLogger)
 
@@ -22,22 +23,23 @@ main = do
   args <- getArgs
   let bdfT1 = T.pack $ args !! 0
       bdfT2 = T.pack $ args !! 1
-  runStdoutLoggingT (runApp $ run bdfT1 bdfT2)
+      batchSize = read $ (args !! 2) :: Int
+  runStdoutLoggingT (runApp $ run bdfT1 bdfT2 batchSize)
 
-run :: Text -> Text -> App ()
-run bdfT1 bdfT2 = do
+run :: Text -> Text -> Int -> App ()
+run bdfT1 bdfT2 batchSize = do
   dev1    <- fromJust <$> newDriver bdfT1 1 1
   dev2    <- fromJust <$> newDriver bdfT2 1 1
   counter <- liftIO $ newIORef (0 :: Int)
-  liftIO $ loop counter dev1 dev2
+  liftIO $ loop counter dev1 dev2 batchSize
 
-loop :: IORef Int -> Device -> Device -> IO ()
-loop counter dev1 dev2 = do
+loop :: IORef Int -> Device -> Device -> Int -> IO ()
+loop counter dev1 dev2 batchSize = do
   let clock = Monotonic
   timeRef <- newIORef (TimeSpec {sec = 0, nsec = 0})
   forever $ do
-    forward dev1 dev2
-    forward dev2 dev1
+    forward dev1 dev2 batchSize
+    forward dev2 dev1 batchSize
     !c <- readIORef counter
     when
       (c .&. 0xF == 0)
@@ -73,9 +75,9 @@ loop counter dev1 dev2 = do
       )
     modifyIORef' counter (+ 1)
 
-forward :: Device -> Device -> IO ()
-forward rxDev txDev = do
-  !pkts <- receive rxDev 0 128
+forward :: Device -> Device -> Int -> IO ()
+forward rxDev txDev batchSize = do
+  !pkts <- receive rxDev 0 batchSize
   mapM_ touchPacket pkts
   send txDev 0 (memPoolOf rxDev 0) (reverse pkts)
  where

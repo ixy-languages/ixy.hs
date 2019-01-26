@@ -7,6 +7,6 @@ do
 	for i in 49 55 64 70 79 82 91 100 110
 	do
 		echo -n "$i, " >> $F
-		./sanitize.sh ./$t/measurement-batch-$i.log | awk '{sum += $1; num++} END {print sum/num}' >> $F
+		./sanitize.sh ./$t/measurement-freq-$i.log | awk '{sum += $1; num++} END {print sum/num}' >> $F
 	done
 done

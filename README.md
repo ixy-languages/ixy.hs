@@ -26,13 +26,15 @@ sudo ./setup-hugetlbfs.sh
 
 Next step is to build ixy.hs with some compiler optimizations, to get extra juice:
 ```
-stack build --ghc-options="-O2"
+stack build --ghc-options="-O2 -fllvm"
 ```
 
 You can then go ahead and run the driver with (replace the PCI ids):
 ```
-stack run 0000:00:00.0 0000:00:00.1
+stack run 0000:00:00.0 0000:00:00.1 batchSize
 ```
+
+You can choose any of these batch sizes (go with 128): 1,2,4,8,16,32,64,128,256
 
 The build binaries can be found in
 `.stack-work/dist/x86_64-linux-tinfo6/Cabal-2.2.0.1/build/forwarder/forwarder`.
