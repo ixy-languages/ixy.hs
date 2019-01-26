@@ -2,8 +2,8 @@ library(readr)
 library(ggplot2)
 library(reshape2)
 
-dataAsm <- read.csv("~/Code/ixy/measurements/asm/raw-freq.csv", header=FALSE)
-dataLlvm <- read.csv("~/Code/ixy/measurements/llvm/raw-freq.csv", header=FALSE)
+dataAsm <- read.csv("./asm/raw-freq.csv", header=FALSE)
+dataLlvm <- read.csv("./llvm/raw-freq.csv", header=FALSE)
 data <- merge(dataAsm, dataLlvm, by="V1")
 data$V2.x <- data$V2.x * 2
 data$V2.y <- data$V2.y * 2
