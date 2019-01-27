@@ -6,12 +6,14 @@ TURBO=/sys/devices/system/cpu/intel_pstate/no_turbo
 
 set -x
 
-for t in llvm asm
+for t in asm-less-opt llvm asm 
 do
 	echo "Now benchmarking: $t"
 	stack clean
 	if [ $t == "llvm" ]; then
 		stack build --ghc-options="-O2 -fllvm"
+	elif [ $t == "asm-less-opt" ]; then
+		stack build
 	else
 		stack build --ghc-options="-O2"
 	fi
