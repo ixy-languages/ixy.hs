@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for t in asm llvm
+for t in asm llvm asm-less-opt
 do
 	F=./$t/raw-freq.csv
 	rm $F
