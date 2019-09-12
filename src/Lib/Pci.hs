@@ -41,7 +41,11 @@ import           System.Posix.Memory            ( MemoryMapFlag(MemoryMapShared)
                                                   )
                                                 , memoryMap
                                                 )
-import           Text.Regex.PCRE                ( (=~) )
+import qualified Data.Attoparsec.Text          as P
+import           Data.Char                      ( isHexDigit
+                                                , isDigit
+                                                )
+import           Data.Either                    ( isRight )
 
 -- | A set of Bus, Device, and Function identifiers that identify a PCI device.
 --
@@ -64,9 +68,16 @@ newtype BusDeviceFunction = BDF
 -- To see the formatting requirements see 'BusDeviceFunction'.
 busDeviceFunction :: Text -> Maybe BusDeviceFunction
 busDeviceFunction bdfText
-  | T.unpack bdfText =~ T.unpack "[0-9A-Fa-f]{4}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}.[0-9]"
-  = Just (BDF bdfText)
-busDeviceFunction _ = Nothing
+  | isBDF bdfText = Just (BDF bdfText)
+  | otherwise = Nothing
+  where
+    isBDF = isRight . P.parseOnly (do
+      P.count 4 (P.satisfy isHexDigit)
+      P.count 2 $ do
+        P.char ':'
+        P.count 2 (P.satisfy isHexDigit)
+      P.char '.'
+      P.satisfy isDigit)
 
 base :: Path.AbsDir
 base = Path.absDir "/sys/bus/pci/devices/"
