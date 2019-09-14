@@ -280,11 +280,11 @@ receive dev id num = do
   index <- readIORef (rxqIndexRef queue)
   go index 0 []
  where
-  queue = devRxQueues dev V.! id
+  queue = devRxQueues dev `V.unsafeIndex` id
   memPool = rxqMemPool queue
 
   go !index !iteration bufs
-    | iteration == num = bufs <$ postProcess
+    | iteration == num = postProcess
     | otherwise = do
       descriptor <- peek descPtr
       if isDone descriptor
@@ -302,9 +302,7 @@ receive dev id num = do
             poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
 
             go ((index + 1) `rem` numRxQueueEntries) (iteration + 1) (bufPtr : bufs)
-        else do
-          postProcess
-          return bufs
+        else postProcess
     where
       descPtr = rxDescriptor queue index
 
@@ -313,6 +311,7 @@ receive dev id num = do
           let j = index - 1
           set dev (RDT id) $ fromIntegral j
           writeIORef (rxqIndexRef queue) index
+        return bufs
 
 txCleanBatch :: Int
 txCleanBatch = 32
