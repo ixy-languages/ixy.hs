@@ -145,7 +145,7 @@ initRx numRx = do
     liftIO $ setMask dev (SRRCTL id) dropEnable
     -- Setup descriptor ring.
     queue             <- mkRxQueue
-    PhysAddr physAddr <- liftIO $ translate $ VirtAddr $ rxqDescriptor queue 0
+    PhysAddr physAddr <- liftIO $ translate $ VirtAddr $ rxDescriptor queue 0
     liftIO $ do
       set dev (RDBAL id) $ fromIntegral $ physAddr .&. 0xFFFFFFFF
       set dev (RDBAH id) $ fromIntegral $ shift physAddr (-32)
@@ -157,7 +157,7 @@ initRx numRx = do
       $  "Rx Ring "
       <> show id
       <> " at "
-      <> show (rxqDescriptor queue 0)
+      <> show (rxDescriptor queue 0)
       <> "(phys="
       <> T.pack (showHex physAddr "")
       <> ")."
@@ -276,50 +276,51 @@ reset = do
 -- $ Operations
 
 receive :: Device -> Int -> Int -> IO [Ptr PacketBuf]
-receive dev id num =
-  let queue = devRxQueues dev V.! id
-  in  do
-        index <- readIORef (rxqIndexRef queue)
-        go queue index 0 []
+receive dev id num = do
+  index <- readIORef (rxqIndexRef queue)
+  go index 0 []
  where
-  go queue !index !i bufs | i == num = do
-    postProcess
-    return bufs
-   where postProcess = do
-          let index' = (index + i) `rem` numRxQueueEntries
-          when (index /= index') $ do
-            let j = (index + i - 1) `rem` numRxQueueEntries
-            set dev (RDT id) $ fromIntegral j
-            writeIORef (rxqIndexRef queue) index'
-  go queue !index !i bufs = do
-    let next    = (index + i) `rem` numRxQueueEntries
-        descPtr = rxqDescriptor queue next
-    descriptor <- peek descPtr
-    if isDone descriptor
-      then if not $ isEndOfPacket descriptor
-        then throwIO $ userError "Multi-segment packets are not supported."
+  queue = devRxQueues dev V.! id
+  memPool = rxqMemPool queue
+
+
+-- go should be a really tight loop
+--
+-- ideally it should not allocate anything
+-- (except for the buffers in the manually managed memory pool)
+--
+-- it needs the memPool
+
+  go !index !iteration bufs
+    | iteration == num = bufs <$ postProcess
+    | otherwise = do
+      descriptor <- peek descPtr
+      if isDone descriptor
+        then if not $ isEndOfPacket descriptor
+          then throwIO $ userError "Multi-segment packets are not supported."
+          else do
+            -- Remember the old buffer to give to the caller.
+            bufPtr <- idToPtr memPool <$> unsafeRxGetMapping queue index
+            pokeSize bufPtr $ fromIntegral $ rdLength descriptor
+
+            -- Allocate a new buffer and reset the descriptor.
+            newBufPtr <- allocateBuf memPool
+            unsafeRxMap queue index =<< peekId newBufPtr
+            PhysAddr physAddr <- peekAddr newBufPtr
+            poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
+
+            go ((index + 1) `rem` numRxQueueEntries) (iteration + 1) (bufPtr : bufs)
         else do
-          let memPool = rxqMemPool queue
-          -- Remember the old buffer to give to the caller.
-          bufPtr <- idToPtr memPool <$> rxGetMapping queue next
-          pokeSize bufPtr $ fromIntegral $ rdLength descriptor
-
-          -- Allocate a new buffer and reset the descriptor.
-          newBufPtr <- allocateBuf memPool
-          rxMap queue next =<< peekId newBufPtr
-          PhysAddr physAddr <- peekAddr newBufPtr
-          poke descPtr ReceiveRead {rdBufPhysAddr = physAddr, rdHeaderAddr = 0}
-
-          go queue index (i + 1) (bufPtr : bufs)
-      else do
           postProcess
           return bufs
-   where postProcess = do
-          let index' = (index + i) `rem` numRxQueueEntries
-          when (index /= index') $ do
-            let j = (index + i - 1) `rem` numRxQueueEntries
-            set dev (RDT id) $ fromIntegral j
-            writeIORef (rxqIndexRef queue) index'
+    where
+      descPtr = rxDescriptor queue index
+
+      postProcess = do
+        when (index /= 0) $ do
+          let j = index - 1
+          set dev (RDT id) $ fromIntegral j
+          writeIORef (rxqIndexRef queue) index
 
 txCleanBatch :: Int
 txCleanBatch = 32

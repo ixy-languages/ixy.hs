@@ -35,6 +35,7 @@ import           Control.Monad.Logger           ( MonadLogger
                                                 )
 import           Control.Monad.Catch     hiding ( bracket )
 import qualified Data.Array.IO                 as Array
+import qualified Data.Array.Base               as Array
 import           Data.Binary.Get
 import qualified Data.ByteString               as B
 import           Data.ByteString.Unsafe
@@ -132,12 +133,15 @@ instance Storable PacketBuf where
 
 addrOffset :: Int
 addrOffset = sizeOf (0 :: Int)
+{-# INLINE addrOffset #-}
 
 sizeOffset :: Int
 sizeOffset = addrOffset + sizeOf (0 :: Word64)
+{-# INLINE sizeOffset #-}
 
 dataOffset :: Int
 dataOffset = sizeOffset + sizeOf (0 :: Int)
+{-# INLINE dataOffset #-}
 
 data MemPool = MemPool { mpBaseAddr :: Ptr Word8
                        , mpNumEntries :: Int
@@ -167,36 +171,46 @@ mkMemPool numEntries = do
       PacketBuf {pbId = i, pbAddr = bufPhysAddr, pbSize = 0, pbData = B.empty}
   bufSize = sizeOf (undefined :: PacketBuf)
 
+-- TODO: proof that unsafeRead always succeeds
 allocateBuf :: MemPool -> IO (Ptr PacketBuf)
 allocateBuf memPool = do
-  let topRef = mpTop memPool
-  modifyIORef' topRef (\i -> i - 1)
-  top <- readIORef topRef
-  id  <- Array.readArray (mpFreeBufs memPool) top
+  top <- subtract 1 <$> readIORef topRef
+  writeIORef topRef $! top
+  id  <- Array.unsafeRead (mpFreeBufs memPool) top
   return $ idToPtr memPool id
+  where
+    topRef = mpTop memPool
+{-# INLINE allocateBuf #-}
 
 idToPtr :: MemPool -> Int -> Ptr PacketBuf
 idToPtr memPool id =
   (mpBaseAddr memPool) `plusPtr` (id * sizeOf (undefined :: PacketBuf))
+{-# INLINE idToPtr #-}
 
 peekId :: Ptr PacketBuf -> IO Int
 peekId ptr = peek (castPtr ptr)
+{-# INLINE peekId #-}
 
 peekAddr :: Ptr PacketBuf -> IO PhysAddr
 peekAddr ptr = PhysAddr <$> peekByteOff ptr addrOffset
+{-# INLINE peekAddr #-}
 
 peekSize :: Ptr PacketBuf -> IO Int
 peekSize ptr = peekByteOff ptr sizeOffset
+{-# INLINE peekSize #-}
 
 pokeSize :: Ptr PacketBuf -> Int -> IO ()
 pokeSize ptr = pokeByteOff ptr sizeOffset
+{-# INLINE pokeSize #-}
 
+-- TODO: proof that unsafeWrite always succeeds
 freeBuf :: MemPool -> Int -> IO ()
 freeBuf memPool id = do
   let topRef = mpTop memPool
   top <- readIORef topRef
-  Array.writeArray (mpFreeBufs memPool) top id
-  modifyIORef' topRef (+ 1)
+  Array.unsafeWrite (mpFreeBufs memPool) top id
+  writeIORef topRef $! top + 1
+{-# INLINE freeBuf #-}
 
 -- $ Utility
 
