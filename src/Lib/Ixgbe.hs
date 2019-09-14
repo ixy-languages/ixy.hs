@@ -283,14 +283,6 @@ receive dev id num = do
   queue = devRxQueues dev V.! id
   memPool = rxqMemPool queue
 
-
--- go should be a really tight loop
---
--- ideally it should not allocate anything
--- (except for the buffers in the manually managed memory pool)
---
--- it needs the memPool
-
   go !index !iteration bufs
     | iteration == num = bufs <$ postProcess
     | otherwise = do

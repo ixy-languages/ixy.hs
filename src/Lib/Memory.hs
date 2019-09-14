@@ -171,7 +171,7 @@ mkMemPool numEntries = do
       PacketBuf {pbId = i, pbAddr = bufPhysAddr, pbSize = 0, pbData = B.empty}
   bufSize = sizeOf (undefined :: PacketBuf)
 
--- TODO: proof that unsafeRead always succeeds
+-- TODO: prove that unsafeRead always succeeds
 allocateBuf :: MemPool -> IO (Ptr PacketBuf)
 allocateBuf memPool = do
   top <- subtract 1 <$> readIORef topRef
@@ -203,7 +203,7 @@ pokeSize :: Ptr PacketBuf -> Int -> IO ()
 pokeSize ptr = pokeByteOff ptr sizeOffset
 {-# INLINE pokeSize #-}
 
--- TODO: proof that unsafeWrite always succeeds
+-- TODO: prove that unsafeWrite always succeeds
 freeBuf :: MemPool -> Int -> IO ()
 freeBuf memPool id = do
   let topRef = mpTop memPool
