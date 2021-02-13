@@ -236,7 +236,7 @@ initTx numTx = do
    where
     wbMagic =
       (.|. (36 .|. shift 8 8 .|. shift 4 16))
-        . (.&. complement (0x3F .|. shift 0x3F 8 .|. shift 0x3F 16))
+        . (.&. complement (0x7F .|. shift 0x7F 8 .|. shift 0x7F 16))
   startQueue id = do
     dev <- ask
     $(logDebug) $ "Starting tx queue " <> show id <> "."
