@@ -24,10 +24,13 @@ module Lib.Ixgbe.Queue
   , isEndOfPacket
   , nullTransmitDescriptor
   , bufferSize
+  , rxDescriptor
   , rxMap
   , rxGetMapping
   , txMap
   , txGetMapping
+  , unsafeRxMap
+  , unsafeRxGetMapping
   )
 where
 
@@ -37,6 +40,7 @@ import           Lib.Prelude
 import           Control.Monad.Catch            ( MonadThrow )
 import           Control.Monad.Logger
 import qualified Data.Array.IO                 as Array
+import qualified Data.Array.Base               as Array
 import           Data.IORef
 import           Foreign.Ptr                    ( castPtr
                                                 , plusPtr
@@ -61,11 +65,18 @@ bufferSize = 2048
 
 -- $ Queues
 
-data RxQueue = RxQueue { rxqDescriptor :: Int -> Ptr ReceiveDescriptor
+data RxQueue = RxQueue { rxqDescPtr :: Ptr ReceiveDescriptor
                        , rxqMemPool :: !MemPool
                        , rxqMap :: !(Array.IOUArray Int Int)
                        , rxqIndexRef :: !(IORef Int)
                        }
+
+rxDescriptor :: RxQueue -> Int -> Ptr ReceiveDescriptor
+rxDescriptor queue = rxDescriptor' (rxqDescPtr queue)
+{-# INLINE rxDescriptor #-}
+
+rxDescriptor' :: Ptr ReceiveDescriptor -> Int -> Ptr ReceiveDescriptor
+rxDescriptor' descPtr i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
 
 mkRxQueue :: (MonadThrow m, MonadIO m, MonadLogger m) => m RxQueue
 mkRxQueue = do
@@ -73,13 +84,12 @@ mkRxQueue = do
   memPool <- mkMemPool $ (numRxQueueEntries + numTxQueueEntries) * 2
   descPtr <- allocateDescriptors
     (numRxQueueEntries * sizeOf nullReceiveDescriptor)
-  let descriptor i = descPtr `plusPtr` (i * sizeOf nullReceiveDescriptor)
   ids <- mapM (setupDescriptor memPool)
-              [ descriptor i | i <- [0 .. numRxQueueEntries - 1] ]
+              [ rxDescriptor' descPtr i | i <- [0 .. numRxQueueEntries - 1] ]
   indexRef <- liftIO $ newIORef (0 :: Int)
   m        <- liftIO $ Array.newListArray (0, numRxQueueEntries - 1) ids
   return $! RxQueue
-    { rxqDescriptor = descriptor
+    { rxqDescPtr    = descPtr
     , rxqMemPool    = memPool
     , rxqMap        = m
     , rxqIndexRef   = indexRef
@@ -93,9 +103,19 @@ mkRxQueue = do
 
 rxMap :: RxQueue -> Int -> Int -> IO ()
 rxMap queue = Array.writeArray (rxqMap queue)
+{-# INLINE rxMap #-}
+
+unsafeRxMap :: RxQueue -> Int -> Int -> IO ()
+unsafeRxMap queue = Array.unsafeWrite (rxqMap queue)
+{-# INLINE unsafeRxMap #-}
 
 rxGetMapping :: RxQueue -> Int -> IO Int
 rxGetMapping queue = Array.readArray (rxqMap queue)
+{-# INLINE rxGetMapping #-}
+
+unsafeRxGetMapping :: RxQueue -> Int -> IO Int
+unsafeRxGetMapping queue i = Array.unsafeRead (rxqMap queue) i
+{-# INLINE unsafeRxGetMapping #-}
 
 data TxQueue = TxQueue { txqDescriptor :: Int -> Ptr TransmitDescriptor
                        , txqMap :: !(Array.IOUArray Int Int)
@@ -119,9 +139,11 @@ mkTxQueue = do
 
 txMap :: TxQueue -> Int -> Int -> IO ()
 txMap queue = Array.writeArray (txqMap queue)
+{-# INLINE txMap #-}
 
 txGetMapping :: TxQueue -> Int -> IO Int
 txGetMapping queue = Array.readArray (txqMap queue)
+{-# INLINE txGetMapping #-}
 
 -- $ Descriptors
 
